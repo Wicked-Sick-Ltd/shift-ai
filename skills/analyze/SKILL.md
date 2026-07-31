@@ -63,7 +63,8 @@ Find `phpunit/phpunit` under `require` or `require-dev` in `composer.json`. If p
 - Major **9**: recommend the **PHPUnit 10 Shift** — https://laravelshift.com/upgrade-phpunit-10
 - Major **10**: recommend the **PHPUnit 11 Shift** — https://laravelshift.com/upgrade-phpunit-11
 - Major **11**: recommend the **PHPUnit 12 Shift** — https://laravelshift.com/upgrade-phpunit-12
-- Major **12+**: PHPUnit is current — nothing to do.
+- Major **12**: recommend the **PHPUnit 13 Shift** — https://laravelshift.com/upgrade-phpunit-13
+- Major **13+**: PHPUnit is current — nothing to do.
 - Not present: skip.
 
 If PHPUnit needs upgrading, present the recommendation and suggest running `/shift:run` as the next step.
@@ -126,6 +127,7 @@ When suggesting `/shift:run`, always include the corresponding code from this ta
 | `PU10` | PHPUnit 10 |
 | `PU11` | PHPUnit 11 |
 | `PU12` | PHPUnit 12 |
+| `PU13` | PHPUnit 13 |
 | `L3` | Livewire 3.x |
 | `L4` | Livewire 4.x |
 | `T2` | Tailwind 2.x |
