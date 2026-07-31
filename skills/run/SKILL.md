@@ -1,5 +1,5 @@
 ---
-name: shift:run
+name: run
 description: Run a Shift against this repository via the Shift API
 arguments: <sku>
 ---

@@ -1,5 +1,5 @@
 ---
-name: shift:refactor
+name: refactor
 description: Run a Shift Workbench task against this repository
 arguments: [task-slug]
 ---

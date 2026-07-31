@@ -1,5 +1,5 @@
 ---
-name: shift:review
+name: review
 description: Review and process the pull request created by Laravel Shift
 arguments: <shift-number>
 ---
