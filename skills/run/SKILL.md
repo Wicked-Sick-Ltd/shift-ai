@@ -13,6 +13,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 | Code | Shift |
 |------|-------|
 | `CI` | CI Generator |
+| `TD` | Double Converter |
 | `FL` | Fast Laravel |
 | `HC` | HTML Converter |
 | `10` | Laravel 10.x |
@@ -56,6 +57,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 | `T1` | Tailwind 1.x |
 | `T2` | Tailwind 2.x |
 | `T3` | Tailwind 3.x |
+| ~~`T4`~~ | **Not a real Shift.** Tailwind 4.x has no Shift — laravelshift.com redirects to Tailwind's own upgrade tool. Never run this; point the user to https://tailwindcss.com/docs/upgrade-guide#using-the-upgrade-tool instead. |
 | `TU` | Tailwind UI |
 | `TG` | Tests Generator |
 | `VC` | Vite Converter |
@@ -63,6 +65,8 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 ## Steps
 
 1. If no Shift code was provided in `$ARGUMENTS`, ask the user which Shift they'd like to run. Show the code table above as a reference and suggest running `/shift:analyze` first if they're unsure which Shift applies to their project.
+
+   If `$ARGUMENTS` is `T4` (or otherwise requests a "Tailwind 4" Shift), do not call the API. There is no Tailwind 4.x Shift — tell the user to use Tailwind's own upgrade tool instead: https://tailwindcss.com/docs/upgrade-guide#using-the-upgrade-tool
 
 2. Check if `SHIFT_API_TOKEN` is set in the environment. If it's missing, let the user know they may generate an API token at: https://laravelshift.com/account/api-token, then ask them to provide it. Once provided, ask whether they'd like to save it to `~/.claude/settings.json` (recommended — available across all projects) or `.claude/settings.local.json` (this project only). Save it under the `env` key of whichever file they choose:
    ```json
