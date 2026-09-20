@@ -40,3 +40,15 @@ npx skills add laravel-shift/shift-ai
 The `/shift:run` and `/shift:refactor` commands use the [Shift API](https://laravelshift.com/shift-api). As such, they require a Shift API token. You may sign into [Shift](https://laravelshift.com) to generate one.
 
 The `/shift:review` command interacts with Shift changes through Git. If your repository is hosted with GitHub, the [`gh`](https://cli.github.com) utility is required.
+
+<!-- repository-guidance:begin -->
+## Contributing and agent guidance
+
+- [Contributor guide](CONTRIBUTING.md): development workflow and validation.
+- [Agent instructions](AGENTS.md): shared guidance for Codex and other coding agents.
+- [Security policy](SECURITY.md): private vulnerability reporting.
+
+## Repository license
+
+Upstream licensing requires review; see [LICENSE-NOTICE.md](LICENSE-NOTICE.md).
+<!-- repository-guidance:end -->
