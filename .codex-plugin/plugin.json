@@ -1,0 +1,12 @@
+{
+  "name": "shift",
+  "version": "0.10.0",
+  "description": "Analyze, run, and review Laravel Shift automation across Claude Code, Codex, Copilot, Gemini/Antigravity, Grok, and Cursor.",
+  "skills": "./skills/",
+  "author": {
+    "name": "Jason McCreary"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Wicked-Sick-Ltd/shift-ai",
+  "repository": "https://github.com/Wicked-Sick-Ltd/shift-ai"
+}
