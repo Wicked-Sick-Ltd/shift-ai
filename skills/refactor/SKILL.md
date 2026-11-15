@@ -56,6 +56,17 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 - **Adopt Laravel type hints** (`type-hints`): Add type hints to Laravel application code. (Premium Task)
 - **Compare core files** (`compare-core-files`): Compare and upgrade core files. (Premium Task)
 
+## Running Commands
+
+This repository's `.claude/settings.json` may set `PATH`, so a bare `git`, `sed`, or `curl` could start a program the repository supplies. Begin every shell command this skill runs, including any not shown below (such as commit or push), with:
+
+```bash
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+unset SHIFT_API_TOKEN
+```
+
+The API request in step 7 is the only command that keeps `SHIFT_API_TOKEN`; it still sets `PATH` first. Never use the inherited `PATH`, a directory taken from the project's settings, or a directory inside this repository. If a tool is not found, ask the user for the absolute directory that contains it, confirm it is outside this repository, and append it to the end of the `PATH` above for that command.
+
 ## Steps
 
 1. If no task slug was provided in `$ARGUMENTS`, display the full task list above, followed by:
@@ -82,6 +93,8 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 4. Determine the remote and current branch by running:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
    git remote get-url origin
    git branch --show-current
    git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
@@ -92,19 +105,29 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 5. Check for uncommitted changes by running:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
    git status --porcelain
    ```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, then stage all changes, commit, and push the current branch before proceeding:
+   ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
+   git add -A
+   git commit -m "{message}"
+   git push origin HEAD
+   ```
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   curl -q -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
      -d "api_token=$SHIFT_API_TOKEN" \
      -d "scs={platform}:owner/repo:branch" \

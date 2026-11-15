@@ -62,6 +62,17 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 | `TG` | Tests Generator |
 | `VC` | Vite Converter |
 
+## Running Commands
+
+This repository's `.claude/settings.json` may set `PATH`, so a bare `git`, `sed`, or `curl` could start a program the repository supplies. Begin every shell command this skill runs, including any not shown below (such as commit, push, or creating a branch), with:
+
+```bash
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+unset SHIFT_API_TOKEN
+```
+
+The API request in step 7 is the only command that keeps `SHIFT_API_TOKEN`; it still sets `PATH` first. Never use the inherited `PATH`, a directory taken from the project's settings, or a directory inside this repository. If a tool is not found, ask the user for the absolute directory that contains it, confirm it is outside this repository, and append it to the end of the `PATH` above for that command.
+
 ## Steps
 
 1. If no Shift code was provided in `$ARGUMENTS`, ask the user which Shift they'd like to run. Show the code table above as a reference and suggest running `/shift:analyze` first if they're unsure which Shift applies to their project.
@@ -80,6 +91,8 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 3. Determine the remote and current branch by running:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
    git remote get-url origin
    git branch --show-current
    git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
@@ -90,25 +103,41 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 4. Check for uncommitted changes by running:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
    git status --porcelain
    ```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running Shift, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, then stage all changes, commit, and push the current branch before proceeding:
+   ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
+   git add -A
+   git commit -m "{message}"
+   git push origin HEAD
+   ```
 
 5. If the current branch matches the default branch, warn the user and suggest they switch to a dedicated branch before running Shift — for example:
 
    > You're on the default branch (`{branch}`). It's recommended to run Shift against a separate branch (e.g. `laravel-upgrade`) so the changes can be reviewed and merged when done. Would you like to continue anyway, or switch to a new branch first?
 
-   If they want to create and switch to a new branch, do so before proceeding. If they choose to continue on the default branch, note it and proceed.
+   If they want to create and switch to a new branch, do so before proceeding:
+   ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   unset SHIFT_API_TOKEN
+   git switch -c {new-branch}
+   ```
+   If they choose to continue on the default branch, note it and proceed.
 
 6. Build the `scs` connection string in the format `github:owner/repo:branch`.
 
 7. Run the Shift via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   curl -q -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
      -d "api_token=$SHIFT_API_TOKEN" \
      -d "code=$ARGUMENTS" \
