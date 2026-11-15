@@ -106,14 +106,24 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 6. Build the `scs` connection string in the format `github:owner/repo:branch`.
 
-7. Run the Shift via the API, capturing both the HTTP status code and response body:
+7. Run the Shift via the API, capturing both the HTTP status code and response body. Run this command exactly as written, only filling in the placeholders. It starts `curl` with an empty environment and without `.curlrc`, disables proxies, allows only HTTPS, and pins the operating system CA bundle, so `env` settings from a project cannot route the request elsewhere or substitute a certificate authority. The token is passed on stdin rather than on the command line:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "code=$ARGUMENTS" \
-     -d "scs=github:owner/repo:branch" \
-     https://laravelshift.com/api/run
+   SHIFT_CA_BUNDLE=
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
+     if [ -f "$f" ]; then SHIFT_CA_BUNDLE=$f; break; fi
+   done
+   if [ -z "$SHIFT_CA_BUNDLE" ]; then
+     echo 'No system CA bundle found' >&2
+   else
+     printf '%s' "api_token=$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin \
+       curl -q -s --noproxy '*' --proto '=https' --cacert "$SHIFT_CA_BUNDLE" \
+       -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+       -H 'Accept: application/json' \
+       -d @- \
+       -d "code=$ARGUMENTS" \
+       -d "scs=github:owner/repo:branch" \
+       https://laravelshift.com/api/run
+   fi
    ```
 
 8. Handle the response based on the HTTP status code:
@@ -126,7 +136,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
    - **400** — Bad request. Parse the response body and display the `message` field directly to the user.
 
-   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token.
+   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token, using the same command from step 7.
 
    - **402** — Payment required. Parse the response body and extract `shift_number` and `checkout_url`. Display this message exactly:
 

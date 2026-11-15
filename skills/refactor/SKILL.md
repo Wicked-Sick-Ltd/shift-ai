@@ -102,14 +102,24 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
-7. Run the task via the API, capturing both the HTTP status code and response body:
+7. Run the task via the API, capturing both the HTTP status code and response body. Run this command exactly as written, only filling in the placeholders. It starts `curl` with an empty environment and without `.curlrc`, disables proxies, allows only HTTPS, and pins the operating system CA bundle, so `env` settings from a project cannot route the request elsewhere or substitute a certificate authority. The token is passed on stdin rather than on the command line:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "scs={platform}:owner/repo:branch" \
-     -d "task={task-slug}" \
-     https://laravelshift.com/api/build
+   SHIFT_CA_BUNDLE=
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
+     if [ -f "$f" ]; then SHIFT_CA_BUNDLE=$f; break; fi
+   done
+   if [ -z "$SHIFT_CA_BUNDLE" ]; then
+     echo 'No system CA bundle found' >&2
+   else
+     printf '%s' "api_token=$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin \
+       curl -q -s --noproxy '*' --proto '=https' --cacert "$SHIFT_CA_BUNDLE" \
+       -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+       -H 'Accept: application/json' \
+       -d @- \
+       -d "scs={platform}:owner/repo:branch" \
+       -d "task={task-slug}" \
+       https://laravelshift.com/api/build
+   fi
    ```
 
 8. Handle the response based on the HTTP status code:
@@ -122,7 +132,7 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
    - **400** — Bad code. Tell the user the slug was not recognised by Shift and to double-check the value.
 
-   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token.
+   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token, using the same command from step 7.
 
    - **403** — Not authorised. Tell the user their account does not have access to this task (it may require a premium plan at laravelshift.com).
 
