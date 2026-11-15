@@ -56,6 +56,16 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 - **Adopt Laravel type hints** (`type-hints`): Add type hints to Laravel application code. (Premium Task)
 - **Compare core files** (`compare-core-files`): Compare and upgrade core files. (Premium Task)
 
+## Command Environment
+
+The project can set `PATH` through its Claude Code settings, so a bare `git` or `curl` may resolve to a program inside the repository. Start **every** shell command you run for this skill with this line, in the same command as the tools it protects:
+
+```bash
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
+```
+
+Each Bash call starts a new shell, so the line must be repeated in every call, including commands you write yourself that are not shown below (commits, pushes, branch creation, etc.). Never add directories from the current `PATH`, the project, or its settings to it. If a required tool is not found, ask the user for the absolute path to that tool and call it by that path after the line above.
+
 ## Steps
 
 1. If no task slug was provided in `$ARGUMENTS`, display the full task list above, followed by:
@@ -82,6 +92,7 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 4. Determine the remote and current branch by running:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
    git remote get-url origin
    git branch --show-current
    git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
@@ -92,18 +103,24 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 5. Check for uncommitted changes by running:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
    git status --porcelain
    ```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, stage all changes, commit, and push the current branch before proceeding:
+   ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
+   git add -A
+   ```
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
+   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
    curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
      -d "api_token=$SHIFT_API_TOKEN" \
