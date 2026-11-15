@@ -108,13 +108,24 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 7. Run the Shift via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "code=$ARGUMENTS" \
-     -d "scs=github:owner/repo:branch" \
-     https://laravelshift.com/api/run
+   shift_ca=''
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
+     if [ -f "$f" ]; then shift_ca=$f; break; fi
+   done
+   if [ -z "$shift_ca" ]; then
+     echo 'No system CA bundle found; not sending the Shift API token.' >&2
+   else
+     printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin curl -q -s \
+       --proto '=https' --noproxy '*' --cacert "$shift_ca" \
+       -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+       -H 'Accept: application/json' \
+       -d @- \
+       -d "code=$ARGUMENTS" \
+       -d "scs=github:owner/repo:branch" \
+       https://laravelshift.com/api/run
+   fi
    ```
+   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments.
 
 8. Handle the response based on the HTTP status code:
 
