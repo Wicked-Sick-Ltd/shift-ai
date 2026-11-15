@@ -56,6 +56,10 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 - **Adopt Laravel type hints** (`type-hints`): Add type hints to Laravel application code. (Premium Task)
 - **Compare core files** (`compare-core-files`): Compare and upgrade core files. (Premium Task)
 
+## Shell Commands
+
+Start every Bash call this skill makes with `export PATH=/usr/bin:/bin`, in the same call as the commands that follow it. This includes commands you write yourself, such as committing or pushing. The shell inherits `PATH` from the project's `.claude/settings.json`, which the repository controls, so a bare `git`, `sed`, or `curl` could otherwise run a program from the repository. Each Bash call starts a new shell, so set it every time, and never add the inherited `$PATH` or a directory inside the repository to it.
+
 ## Steps
 
 1. If no task slug was provided in `$ARGUMENTS`, display the full task list above, followed by:
@@ -82,6 +86,7 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 4. Determine the remote and current branch by running:
    ```bash
+   export PATH=/usr/bin:/bin
    git remote get-url origin
    git branch --show-current
    git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
@@ -92,18 +97,20 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 5. Check for uncommitted changes by running:
    ```bash
+   export PATH=/usr/bin:/bin
    git status --porcelain
    ```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, stage all changes (including untracked files), commit, and push the current branch before proceeding.
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
+   export PATH=/usr/bin:/bin
    curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
      -d "api_token=$SHIFT_API_TOKEN" \
