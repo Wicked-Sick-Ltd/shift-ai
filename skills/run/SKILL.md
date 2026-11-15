@@ -62,6 +62,10 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 | `TG` | Tests Generator |
 | `VC` | Vite Converter |
 
+## Shell Commands
+
+Start every Bash call this skill makes with `export PATH=/usr/bin:/bin`, in the same call as the commands that follow it. This includes commands you write yourself, such as creating a branch, committing, or pushing. The shell inherits `PATH` from the project's `.claude/settings.json`, which the repository controls, so a bare `git`, `sed`, or `curl` could otherwise run a program from the repository. Each Bash call starts a new shell, so set it every time, and never add the inherited `$PATH` or a directory inside the repository to it.
+
 ## Steps
 
 1. If no Shift code was provided in `$ARGUMENTS`, ask the user which Shift they'd like to run. Show the code table above as a reference and suggest running `/shift:analyze` first if they're unsure which Shift applies to their project.
@@ -79,24 +83,28 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
    If the target file already exists, merge the key into the existing `env` object rather than overwriting the file.
 
 3. Determine the remote and current branch by running:
-   ```bash
-   git remote get-url origin
-   git branch --show-current
-   git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
-   ```
+
+```bash
+export PATH=/usr/bin:/bin
+git remote get-url origin
+git branch --show-current
+git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
+```
+
    Parse the remote URL to extract `owner/repo` — handle both SSH (`git@github.com:owner/repo.git`) and HTTPS (`https://github.com/owner/repo.git`) formats. Strip any trailing `.git`. Also detect the git platform (GitHub or GitLab) from the remote URL hostname, and construct the HTTPS repo URL (e.g. `https://github.com/owner/repo`).
 
    The third command returns the remote default branch (e.g. `main` or `master`). If it produces no output, fall back to treating `main` and `master` as default branch names.
 
 4. Check for uncommitted changes by running:
    ```bash
+   export PATH=/usr/bin:/bin
    git status --porcelain
    ```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running Shift, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, stage all changes (including untracked files), commit, and push the current branch before proceeding.
 
 5. If the current branch matches the default branch, warn the user and suggest they switch to a dedicated branch before running Shift — for example:
 
@@ -108,6 +116,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 7. Run the Shift via the API, capturing both the HTTP status code and response body:
    ```bash
+   export PATH=/usr/bin:/bin
    curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
      -d "api_token=$SHIFT_API_TOKEN" \
