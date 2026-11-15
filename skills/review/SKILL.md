@@ -26,24 +26,26 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 
 **GitHub only**: Check that `gh` is installed (`gh --version`). If not, tell the user to install it from https://cli.github.com and stop.
 
+**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Run each one exactly as written: prefixed with `env -u GH_REPO -u GH_HOST` and passed `--repo "$(git remote get-url origin)"`. Never drop either part or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
+
 ## Step 2: Find the PR and Fetch Details
 
 **GitHub:**
 ```bash
-gh pr list --head "shift-$ARGUMENTS" --json number,title,body,url
+env -u GH_REPO -u GH_HOST gh pr list --head "shift-$ARGUMENTS" --json number,title,body,url,headRefName,baseRefName --repo "$(git remote get-url origin)"
 ```
 
 If no PR is found, try the fallback branch name:
 ```bash
-gh pr list --head "shift-build-$ARGUMENTS" --json number,title,body,url
+env -u GH_REPO -u GH_HOST gh pr list --head "shift-build-$ARGUMENTS" --json number,title,body,url,headRefName,baseRefName --repo "$(git remote get-url origin)"
 ```
 
-If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number for subsequent steps.
+If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number, its head branch (`headRefName`) and its base branch (`baseRefName`) for subsequent steps.
 
 Then fetch the description, comments, and diff:
 ```bash
-gh pr view {PR_NUMBER} --comments
-gh pr diff {PR_NUMBER}
+env -u GH_REPO -u GH_HOST gh pr view {PR_NUMBER} --comments --repo "$(git remote get-url origin)"
+env -u GH_REPO -u GH_HOST gh pr diff {PR_NUMBER} --repo "$(git remote get-url origin)"
 ```
 
 **GitLab and Bitbucket:**
@@ -77,7 +79,7 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-gh pr checkout {PR_NUMBER}
+env -u GH_REPO -u GH_HOST gh pr checkout {PR_NUMBER} --repo "$(git remote get-url origin)"
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
@@ -101,7 +103,7 @@ First, check whether `composer.json` was changed as part of this PR:
 
 **GitHub:**
 ```bash
-gh pr diff {PR_NUMBER} --name-only | grep -q "^composer\.json$"
+env -u GH_REPO -u GH_HOST gh pr diff {PR_NUMBER} --name-only --repo "$(git remote get-url origin)" | grep -q "^composer\.json$"
 ```
 
 **GitLab and Bitbucket:**
@@ -191,9 +193,16 @@ If the user confirms they want to merge:
 4. If there are unpushed commits, push them: `git push`
 5. Merge using the appropriate method for the platform:
 
-**GitHub:**
+**GitHub** — `--match-head-commit` makes the merge fail if the pull request's head is not the commit you reviewed, tested, and pushed:
 ```bash
-gh pr merge {PR_NUMBER} --merge --delete-branch
+env -u GH_REPO -u GH_HOST gh pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$(git rev-parse HEAD)" --repo "$(git remote get-url origin)"
+```
+
+If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch:
+```bash
+git checkout {BASE_BRANCH}
+git pull --ff-only
+git branch -d {BRANCH}
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
