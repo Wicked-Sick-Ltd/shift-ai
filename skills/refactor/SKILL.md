@@ -104,13 +104,18 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "scs={platform}:owner/repo:branch" \
-     -d "task={task-slug}" \
-     https://laravelshift.com/api/build
+   (
+     cd / &&
+     unset CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR SSLKEYLOGFILE &&
+     printf '%s' "$SHIFT_API_TOKEN" | curl -q -s --proto '=https' -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+       -H 'Accept: application/json' \
+       --data-urlencode 'api_token@-' \
+       -d "scs={platform}:owner/repo:branch" \
+       -d "task={task-slug}" \
+       https://laravelshift.com/api/build
+   )
    ```
+   Run this command as written. `-q` must stay curl's first argument so no `.curlrc` (which a repository can select through `CURL_HOME`) is read, the CA and key log variables are cleared so the repository environment cannot change which certificates are trusted, and the token is piped on stdin so it never appears on a command line or in a file.
 
 8. Handle the response based on the HTTP status code:
 
