@@ -58,13 +58,19 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 ## Command Environment
 
-The project can set `PATH` through its Claude Code settings, so a bare `git` or `curl` may resolve to a program inside the repository. Start **every** shell command you run for this skill with this line, in the same command as the tools it protects:
+Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables, and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command.
+
+Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `env -i` command. Git commands start a clean `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. The curl call passes `SHIFT_API_TOKEN` and does not pass `HOME`. Inside that bash, resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
 
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" status --porcelain
+'
 ```
 
-Each Bash call starts a new shell, so the line must be repeated in every call, including commands you write yourself that are not shown below (commits, pushes, branch creation, etc.). Never add directories from the current `PATH`, the project, or its settings to it. If a required tool is not found, ask the user for the absolute path to that tool and call it by that path after the line above.
+Each Bash call starts from the project environment again, so every call repeats `env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails, ask the user for that tool's absolute path and use it in place of the `command -v` result.
 
 ## Steps
 
@@ -92,42 +98,57 @@ Each Bash call starts a new shell, so the line must be repeated in every call, i
 
 4. Determine the remote and current branch by running:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   git remote get-url origin
-   git branch --show-current
-   git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       sed=$(PATH="$PATH" command -v sed) || { echo "sed not found on the fixed PATH" >&2; exit 127; }
+       "$git" remote get-url origin
+       "$git" branch --show-current
+       "$git" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | "$sed" "s@^refs/remotes/origin/@@"
+   '
+```
    Parse the remote URL to extract `owner/repo` — handle both SSH (`git@github.com:owner/repo.git`) and HTTPS (`https://github.com/owner/repo.git`) formats. Strip any trailing `.git`. Also detect the git platform (GitHub, GitLab, or Bitbucket) from the remote URL hostname, and construct the HTTPS repo URL (e.g. `https://github.com/owner/repo`).
 
    The third command returns the remote default branch (e.g. `main` or `master`). If it produces no output, fall back to treating `main` and `master` as default branch names.
 
 5. Check for uncommitted changes by running:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   git status --porcelain
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       "$git" status --porcelain
+   '
+```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes, commit, and push the current branch before proceeding:
+   If they want to commit, ask for a commit message, then run the command below with that message in place of `{commit message}`. It stages, commits, and pushes the current branch under the clean environment:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   git add -A
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       "$git" add -A
+       "$git" commit -m "$1"
+       "$git" push -u origin HEAD
+   ' _ "{commit message}"
+```
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "scs={platform}:owner/repo:branch" \
-     -d "task={task-slug}" \
-     https://laravelshift.com/api/build
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SHIFT_API_TOKEN="${SHIFT_API_TOKEN-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       curl=$(PATH="$PATH" command -v curl) || { echo "curl not found on the fixed PATH" >&2; exit 127; }
+       "$curl" -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+         -H "Accept: application/json" \
+         -d "api_token=$SHIFT_API_TOKEN" \
+         -d "scs={platform}:owner/repo:branch" \
+         -d "task={task-slug}" \
+         https://laravelshift.com/api/build
+   '
+```
 
 8. Handle the response based on the HTTP status code:
 

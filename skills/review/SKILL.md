@@ -14,20 +14,29 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 ## Command Environment
 
-The project can set `PATH` through its Claude Code settings, so a bare `git`, `gh`, `composer`, or `php` may resolve to a program inside the repository. Start **every** shell command you run for this skill with this line, in the same command as the tools it protects:
+Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables (for example `alias.status` or `core.fsmonitor`), and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command, so a trap set there survives `unset -f`.
+
+Run **every** tool for this skill, including commands you write yourself (commits, migrations, code style fixers), as one `env -i` command. That starts a clean `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. Inside it, resolve each tool with `command -v` on that `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
 
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" status --porcelain
+'
 ```
 
-Each Bash call starts a new shell, so the line must be repeated in every call, including commands you write yourself that are not shown below (commits, migrations, code style fixers, etc.). Never add directories from the current `PATH`, the project, or its settings to it. If a required tool is not found, ask the user for the absolute path to that tool and call it by that path after the line above.
+Each Bash call starts from the project environment again, so every call repeats `env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails, ask the user for that tool's absolute path and use it in place of the `command -v` result.
 
 ## Step 1: Detect Platform
 
 Run:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-git remote get-url origin
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" remote get-url origin
+'
 ```
 
 Parse the URL to detect the platform and extract `owner/repo` (handle both SSH and HTTPS formats, strip `.git`):
@@ -37,8 +46,11 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 
 **GitHub only**: Check that `gh` is installed:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh --version
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    "$gh" --version
+'
 ```
 If not, tell the user to install it from https://cli.github.com and stop.
 
@@ -46,39 +58,54 @@ If not, tell the user to install it from https://cli.github.com and stop.
 
 **GitHub:**
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh pr list --head "shift-$ARGUMENTS" --json number,title,body,url
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr list --head "shift-$1" --json number,title,body,url
+' _ "$ARGUMENTS"
 ```
 
 If no PR is found, try the fallback branch name:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh pr list --head "shift-build-$ARGUMENTS" --json number,title,body,url
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr list --head "shift-build-$1" --json number,title,body,url
+' _ "$ARGUMENTS"
 ```
 
 If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number for subsequent steps.
 
 Then fetch the description, comments, and diff:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh pr view {PR_NUMBER} --comments
-gh pr diff {PR_NUMBER}
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr view {PR_NUMBER} --comments
+    "$gh" pr diff {PR_NUMBER}
+'
 ```
 
 **GitLab and Bitbucket:**
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-git fetch origin shift-$ARGUMENTS
-git diff $(git merge-base HEAD origin/shift-$ARGUMENTS)...origin/shift-$ARGUMENTS
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" fetch origin "shift-$1"
+    "$git" diff "$("$git" merge-base HEAD "origin/shift-$1")...origin/shift-$1"
+' _ "$ARGUMENTS"
 ```
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-git fetch origin shift-build-$ARGUMENTS
-git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-build-$ARGUMENTS
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" fetch origin "shift-build-$1"
+    "$git" diff "$("$git" merge-base HEAD "origin/shift-build-$1")...origin/shift-build-$1"
+' _ "$ARGUMENTS"
 ```
 
 
@@ -86,8 +113,11 @@ git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-bui
 
 Before checking out the PR branch, verify the working directory is clean:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-git status --porcelain
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" status --porcelain
+'
 ```
 
 If there are any uncommitted changes, **STOP immediately** and tell the user:
@@ -99,14 +129,20 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh pr checkout {PR_NUMBER}
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr checkout {PR_NUMBER}
+'
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-git checkout {SHIFT_BRANCH}
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" checkout {SHIFT_BRANCH}
+'
 ```
 
 (`git fetch` was already run in Step 2.)
@@ -125,14 +161,22 @@ First, check whether `composer.json` was changed as part of this PR:
 
 **GitHub:**
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh pr diff {PR_NUMBER} --name-only | grep -q "^composer\.json$"
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    grep=$(PATH="$PATH" command -v grep) || { echo "grep not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr diff {PR_NUMBER} --name-only | "$grep" -q "^composer\.json$"
+'
 ```
 
 **GitLab and Bitbucket:**
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-git diff $(git merge-base HEAD origin/{SHIFT_BRANCH})...origin/{SHIFT_BRANCH} --name-only | grep -q "^composer\.json$"
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    grep=$(PATH="$PATH" command -v grep) || { echo "grep not found on the fixed PATH" >&2; exit 127; }
+    "$git" diff "$("$git" merge-base HEAD "origin/{SHIFT_BRANCH}")...origin/{SHIFT_BRANCH}" --name-only | "$grep" -q "^composer\.json$"
+'
 ```
 
 If `composer.json` was **not** changed, skip the rest of this step entirely and proceed to Step 7.
@@ -140,16 +184,22 @@ If `composer.json` was **not** changed, skip the rest of this step entirely and 
 If `composer.json` **was** changed, scan it for any `dev-*` version constraints (e.g. `"dev-main"`, `"dev-master"`, `"dev-fix-something"`). For each one found:
 1. Look up the package on Packagist to check if a stable release exists:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   composer show {package} --all
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
+       "$composer" show {package} --all
+   '
+```
 2. If a compatible stable version is available, update the constraint in `composer.json` to the appropriate semver range (e.g. `^1.2`) and track it as a swapped dependency for the summary in Step 10
 3. If no stable release exists, leave the `dev-*` constraint as-is
 
 Then run:
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-composer update
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
+    "$composer" update
+'
 ```
 
 After running (whether it succeeds or fails):
@@ -195,9 +245,12 @@ For any changes marked as "optional" in the PR:
 After making changes:
 1. Verify tests pass:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   php artisan test --compact
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       php=$(PATH="$PATH" command -v php) || { echo "php not found on the fixed PATH" >&2; exit 127; }
+       "$php" artisan test --compact
+   '
+```
 2. Fix code style on changed files: check `composer.json` for `laravel/pint` or `friendsofphp/php-cs-fixer` (in that priority order) and run the first one found. Use the `--dirty` flag for Pint. If none are found, skip this step.
 3. If tests fail, investigate and fix the issues
 
@@ -220,9 +273,12 @@ End with: "Would you like to merge this PR?"
 If the user confirms they want to merge:
 1. Check for any uncommitted local changes:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   git status --porcelain
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       "$git" status --porcelain
+   '
+```
 2. If there are uncommitted changes:
    - Check if the only changed files match `composer.*` (i.e. `composer.json` and/or `composer.lock`). If so, stage and commit them automatically with the message `composer update` — do not prompt the user.
    - Otherwise, offer to commit them:
@@ -231,20 +287,29 @@ If the user confirms they want to merge:
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   git log origin/{BRANCH}..HEAD
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       "$git" log "origin/{BRANCH}..HEAD"
+   '
+```
 4. If there are unpushed commits, push them:
    ```bash
-   export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-   git push
-   ```
+   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       "$git" push
+   '
+```
 5. Merge using the appropriate method for the platform:
 
 **GitHub:**
 ```bash
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin; unset -f git gh composer php grep curl sed 2>/dev/null
-gh pr merge {PR_NUMBER} --merge --delete-branch
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr merge {PR_NUMBER} --merge --delete-branch
+'
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
