@@ -12,6 +12,15 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 **Never revert or undo any changes made by Shift in this PR.** Shift's changes are intentional and authoritative. If you believe a change made by Shift is incorrect or needs to be different, do NOT make any changes — instead, flag it to the user with your findings and let them decide how to proceed.
 
+## Important: Commands That Contact the Git Remote
+
+Every command in this skill that fetches, checks out the PR, pushes, or merges starts with this prefix:
+```
+env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never
+```
+
+Run those commands exactly as written, with the prefix in the same command. The project's `.claude/settings.json` can put variables into this shell that make git run a program of the project's choosing in place of `ssh` (or make `ssh` run one as a password prompt), and each Bash call starts from that environment again. Never drop the prefix, move it into a separate call, or run another remote git or `gh` command without it.
+
 ## Step 1: Detect Platform
 
 Run:
@@ -50,13 +59,13 @@ gh pr diff {PR_NUMBER}
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-git fetch origin shift-$ARGUMENTS
+env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git fetch origin shift-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-$ARGUMENTS)...origin/shift-$ARGUMENTS
 ```
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-git fetch origin shift-build-$ARGUMENTS
+env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git fetch origin shift-build-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-build-$ARGUMENTS
 ```
 
@@ -77,7 +86,7 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-gh pr checkout {PR_NUMBER}
+env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never gh pr checkout {PR_NUMBER}
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
@@ -188,12 +197,15 @@ If the user confirms they want to merge:
      If the user agrees, stage all changes and commit using "Finalize upgrade" as the subject and the summary from Step 10 as the commit body.
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits: `git log origin/{BRANCH}..HEAD`
-4. If there are unpushed commits, push them: `git push`
+4. If there are unpushed commits, push them:
+   ```bash
+   env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git push
+   ```
 5. Merge using the appropriate method for the platform:
 
 **GitHub:**
 ```bash
-gh pr merge {PR_NUMBER} --merge --delete-branch
+env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never gh pr merge {PR_NUMBER} --merge --delete-branch
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
