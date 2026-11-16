@@ -60,13 +60,26 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables, and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command.
 
-Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. Git commands start `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. The curl call passes `SHIFT_API_TOKEN` and does not pass `HOME`. Inside that bash, resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. Git commands start `bash --noprofile --norc` with only `PATH` and `SSH_AUTH_SOCK`. Do not pass the outer shell's `HOME`. Inside that bash, set `HOME` from the passwd entry for the current uid and set `COMPOSER_HOME` to `$HOME/.composer` before running a tool. The curl call passes `SHIFT_API_TOKEN` and does not pass `HOME`. Then resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
 
 Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
+    uid=$(id -u)
+    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      echo "could not resolve the passwd home; not running the command" >&2
+      exit 127
+    fi
+    HOME=$passwd_home
+    export HOME
+    COMPOSER_HOME=$HOME/.composer
+    export COMPOSER_HOME
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" status --porcelain
 '
@@ -100,8 +113,21 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 4. Determine the remote and current branch by running:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
+       uid=$(id -u)
+       passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+       if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+         passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         echo "could not resolve the passwd home; not running the command" >&2
+         exit 127
+       fi
+       HOME=$passwd_home
+       export HOME
+       COMPOSER_HOME=$HOME/.composer
+       export COMPOSER_HOME
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        sed=$(PATH="$PATH" command -v sed) || { echo "sed not found on the fixed PATH" >&2; exit 127; }
        "$git" remote get-url origin
@@ -115,8 +141,21 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 5. Check for uncommitted changes by running:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
+       uid=$(id -u)
+       passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+       if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+         passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         echo "could not resolve the passwd home; not running the command" >&2
+         exit 127
+       fi
+       HOME=$passwd_home
+       export HOME
+       COMPOSER_HOME=$HOME/.composer
+       export COMPOSER_HOME
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" status --porcelain
    '
@@ -127,8 +166,21 @@ Each Bash call starts from the project environment again, so every call repeats 
 
    If they want to commit, ask for a commit message, then run the command below with that message in place of `{commit message}`. It stages, commits, and pushes the current branch under the clean environment:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
+       uid=$(id -u)
+       passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+       if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+         passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         echo "could not resolve the passwd home; not running the command" >&2
+         exit 127
+       fi
+       HOME=$passwd_home
+       export HOME
+       COMPOSER_HOME=$HOME/.composer
+       export COMPOSER_HOME
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" add -A
        "$git" commit -m "$1"
