@@ -102,27 +102,37 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
-7. Run the task via the API, capturing both the HTTP status code and response body. Run this command exactly as written, only filling in the placeholders. It starts `curl` with an empty environment and without `.curlrc`, disables proxies, allows only HTTPS, and pins the operating system CA bundle, so `env` settings from a project cannot route the request elsewhere or substitute a certificate authority. The token is passed on stdin rather than on the command line:
+7. Run the task via the API, capturing both the HTTP status code and response body. Run this command exactly as written, only filling in the placeholders. It starts `curl` by an absolute path (Linux, macOS, or Git for Windows under `/mingw64/bin`) with an empty environment and without `.curlrc`, disables proxies, allows only HTTPS, and pins the operating system CA bundle, including the Git Bash bundles under `/usr/ssl` and `/mingw64`. `env` settings from a project cannot route the request elsewhere or substitute a certificate authority. The token is passed on stdin rather than on the command line. If no CA bundle or curl is found, the command exits non-zero and deletes `/tmp/shift_response.json`:
    ```bash
    SHIFT_CA_BUNDLE=
-   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem /usr/ssl/certs/ca-bundle.crt /mingw64/ssl/certs/ca-bundle.crt /mingw64/etc/ssl/certs/ca-bundle.crt; do
      if [ -f "$f" ]; then SHIFT_CA_BUNDLE=$f; break; fi
    done
-   if [ -z "$SHIFT_CA_BUNDLE" ]; then
-     echo 'No system CA bundle found' >&2
-   else
-     printf '%s' "api_token=$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin \
-       curl -q -s --noproxy '*' --proto '=https' --cacert "$SHIFT_CA_BUNDLE" \
-       -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-       -H 'Accept: application/json' \
-       -d @- \
-       -d "scs={platform}:owner/repo:branch" \
-       -d "task={task-slug}" \
-       https://laravelshift.com/api/build
+   shift_curl=
+   for c in /usr/bin/curl /bin/curl /usr/local/bin/curl /mingw64/bin/curl /mingw64/bin/curl.exe; do
+     if [ -x "$c" ]; then shift_curl=$c; break; fi
+   done
+   rm -f /tmp/shift_response.json
+   if [ -z "$SHIFT_CA_BUNDLE" ] || [ -z "$shift_curl" ]; then
+     echo 'No system CA bundle or curl found; not sending the request.' >&2
+     exit 1
+   fi
+   printf '%s' "api_token=$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin:/mingw64/bin \
+     "$shift_curl" -q -s --noproxy '*' --proto '=https' --cacert "$SHIFT_CA_BUNDLE" \
+     -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+     -H 'Accept: application/json' \
+     -d @- \
+     -d "scs={platform}:owner/repo:branch" \
+     -d "task={task-slug}" \
+     https://laravelshift.com/api/build
+   shift_curl_status=$?
+   if [ "$shift_curl_status" -ne 0 ]; then
+     rm -f /tmp/shift_response.json
+     exit "$shift_curl_status"
    fi
    ```
 
-8. Handle the response based on the HTTP status code:
+8. Handle the response based on the HTTP status code. If step 7 exits non-zero, or prints no status, stop and tell the user the request was not sent. Do not read `/tmp/shift_response.json` in that case; step 7 removes it when it cannot send, so a body left by an earlier run is not this request's result.
 
    - **202** — Success. Parse the response body and extract `build_number`. Display this message exactly:
 
