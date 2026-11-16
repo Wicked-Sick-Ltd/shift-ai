@@ -96,9 +96,16 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
    > You have uncommitted changes. Would you like to commit and push them before running Shift, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding. Push with exactly this command, keeping the prefix in the same call, since the project's `.claude/settings.json` can set variables that make git run a program of the project's choosing in place of `ssh`:
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding. Push with exactly this command, in one shell call. It clears `GIT_SSH`, `SSH_ASKPASS`, `GIT_ASKPASS`, `GIT_CONFIG_COUNT`, and `GIT_CONFIG_PARAMETERS`, pins `PATH`, sets `GIT_SSH_COMMAND` to the absolute `ssh` on that `PATH`, and passes `-c credential.helper= -c core.askPass=`, so project settings cannot choose the ssh program, an askpass program, or a shell credential helper:
    ```bash
-   env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git push -u origin HEAD
+   shift_ssh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   shift_git=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   env -u GIT_SSH -u SSH_ASKPASS -u GIT_ASKPASS -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+     PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin \
+     GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh")" \
+     GIT_ALLOW_PROTOCOL=ssh:https:http \
+     SSH_ASKPASS_REQUIRE=never \
+     "$shift_git" -c credential.helper= -c core.askPass= push -u origin HEAD
    ```
 
 5. If the current branch matches the default branch, warn the user and suggest they switch to a dedicated branch before running Shift — for example:

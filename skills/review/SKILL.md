@@ -14,12 +14,9 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 ## Important: Commands That Contact the Git Remote
 
-Every command in this skill that fetches, checks out the PR, pushes, or merges starts with this prefix:
-```
-env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never
-```
+Every command in this skill that fetches, checks out the PR, pushes, or merges is written out in full below. Run it exactly as written, in one shell call. The project's `.claude/settings.json` is copied into each Bash call and can otherwise choose the program git runs instead of `ssh`, the askpass program git runs (`GIT_ASKPASS` or `core.askPass`; git does not consult `SSH_ASKPASS_REQUIRE`), or a `credential.helper` whose value starts with `!`.
 
-Run those commands exactly as written, with the prefix in the same command. The project's `.claude/settings.json` can put variables into this shell that make git run a program of the project's choosing in place of `ssh` (or make `ssh` run one as a password prompt), and each Bash call starts from that environment again. Never drop the prefix, move it into a separate call, or run another remote git or `gh` command without it.
+Each command clears `GIT_SSH`, `SSH_ASKPASS`, `GIT_ASKPASS`, `GIT_CONFIG_COUNT`, and `GIT_CONFIG_PARAMETERS`, sets `PATH` to `/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin`, and sets `GIT_SSH_COMMAND` to the absolute `ssh` from that `PATH` (shell-quoted, because git passes `GIT_SSH_COMMAND` to a shell). Direct `git` commands also pass `-c credential.helper= -c core.askPass=`, which clears helpers and askpass from config. `gh pr checkout` and `gh pr merge` spawn git, so those commands put a `git` shim first on `PATH` that adds the same two `-c` flags. Never drop any of that, split it across calls, or run another remote `git` or `gh` command without it.
 
 ## Step 1: Detect Platform
 
@@ -59,13 +56,27 @@ gh pr diff {PR_NUMBER}
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git fetch origin shift-$ARGUMENTS
+shift_ssh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+env -u GIT_SSH -u SSH_ASKPASS -u GIT_ASKPASS -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh")" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" -c credential.helper= -c core.askPass= fetch origin shift-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-$ARGUMENTS)...origin/shift-$ARGUMENTS
 ```
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git fetch origin shift-build-$ARGUMENTS
+shift_ssh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+env -u GIT_SSH -u SSH_ASKPASS -u GIT_ASKPASS -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh")" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" -c credential.helper= -c core.askPass= fetch origin shift-build-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-build-$ARGUMENTS
 ```
 
@@ -86,7 +97,22 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never gh pr checkout {PR_NUMBER}
+shift_ssh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_gh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v gh) || { echo 'gh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_mktemp=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_chmod=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_rm=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_bin=$("$shift_mktemp" -d)
+trap '"$shift_rm" -rf "$shift_bin"' EXIT
+printf '#!/bin/sh\nexec %s -c credential.helper= -c core.askPass= "$@"\n' "$(printf '%q' "$shift_git")" > "$shift_bin/git"
+"$shift_chmod" +x "$shift_bin/git"
+env -u GIT_SSH -u SSH_ASKPASS -u GIT_ASKPASS -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+  PATH="$shift_bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh")" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_gh" pr checkout {PR_NUMBER}
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
@@ -199,13 +225,35 @@ If the user confirms they want to merge:
 3. Once the working directory is clean, check if the branch has unpushed commits: `git log origin/{BRANCH}..HEAD`
 4. If there are unpushed commits, push them:
    ```bash
-   env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never git push
+   shift_ssh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   shift_git=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   env -u GIT_SSH -u SSH_ASKPASS -u GIT_ASKPASS -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+     PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin \
+     GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh")" \
+     GIT_ALLOW_PROTOCOL=ssh:https:http \
+     SSH_ASKPASS_REQUIRE=never \
+     "$shift_git" -c credential.helper= -c core.askPass= push
    ```
 5. Merge using the appropriate method for the platform:
 
 **GitHub:**
 ```bash
-env -u GIT_SSH -u SSH_ASKPASS GIT_SSH_COMMAND=ssh GIT_ALLOW_PROTOCOL=ssh:https:http SSH_ASKPASS_REQUIRE=never gh pr merge {PR_NUMBER} --merge --delete-branch
+shift_ssh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_gh=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v gh) || { echo 'gh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_mktemp=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_chmod=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_rm=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_bin=$("$shift_mktemp" -d)
+trap '"$shift_rm" -rf "$shift_bin"' EXIT
+printf '#!/bin/sh\nexec %s -c credential.helper= -c core.askPass= "$@"\n' "$(printf '%q' "$shift_git")" > "$shift_bin/git"
+"$shift_chmod" +x "$shift_bin/git"
+env -u GIT_SSH -u SSH_ASKPASS -u GIT_ASKPASS -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+  PATH="$shift_bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh")" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_gh" pr merge {PR_NUMBER} --merge --delete-branch
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
