@@ -16,24 +16,26 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables (for example `alias.status` or `core.fsmonitor`), and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command, so a trap set there survives `unset -f`.
 
-Run **every** tool for this skill, including commands you write yourself (commits, migrations, code style fixers), as one `env -i` command. That starts a clean `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. Inside it, resolve each tool with `command -v` on that `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+Run **every** tool for this skill, including commands you write yourself (commits, migrations, code style fixers), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. That bash is `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. Inside it, resolve each tool with `command -v` on that `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+
+Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" status --porcelain
 '
 ```
 
-Each Bash call starts from the project environment again, so every call repeats `env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails, ask the user for that tool's absolute path and use it in place of the `command -v` result.
+Each Bash call starts from the project environment again, so every call repeats `/usr/bin/env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails inside that bash, ask the user for that tool's absolute path and use it in place of the `command -v` result.
 
 ## Step 1: Detect Platform
 
 Run:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" remote get-url origin
 '
@@ -46,8 +48,8 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 
 **GitHub only**: Check that `gh` is installed:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     "$gh" --version
 '
@@ -58,8 +60,8 @@ If not, tell the user to install it from https://cli.github.com and stop.
 
 **GitHub:**
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     "$gh" pr list --head "shift-$1" --json number,title,body,url
 ' _ "$ARGUMENTS"
@@ -67,8 +69,8 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME=
 
 If no PR is found, try the fallback branch name:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     "$gh" pr list --head "shift-build-$1" --json number,title,body,url
 ' _ "$ARGUMENTS"
@@ -78,8 +80,8 @@ If still no PR is found, tell the user and stop. If multiple PRs are found, show
 
 Then fetch the description, comments, and diff:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     "$gh" pr view {PR_NUMBER} --comments
     "$gh" pr diff {PR_NUMBER}
@@ -90,8 +92,8 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME=
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" fetch origin "shift-$1"
     "$git" diff "$("$git" merge-base HEAD "origin/shift-$1")...origin/shift-$1"
@@ -100,8 +102,8 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME=
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" fetch origin "shift-build-$1"
     "$git" diff "$("$git" merge-base HEAD "origin/shift-build-$1")...origin/shift-build-$1"
@@ -113,8 +115,8 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME=
 
 Before checking out the PR branch, verify the working directory is clean:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" status --porcelain
 '
@@ -129,8 +131,8 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     "$gh" pr checkout {PR_NUMBER}
 '
@@ -138,8 +140,8 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME=
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" checkout {SHIFT_BRANCH}
 '
@@ -161,8 +163,8 @@ First, check whether `composer.json` was changed as part of this PR:
 
 **GitHub:**
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     grep=$(PATH="$PATH" command -v grep) || { echo "grep not found on the fixed PATH" >&2; exit 127; }
     "$gh" pr diff {PR_NUMBER} --name-only | "$grep" -q "^composer\.json$"
@@ -171,8 +173,8 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME=
 
 **GitLab and Bitbucket:**
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     grep=$(PATH="$PATH" command -v grep) || { echo "grep not found on the fixed PATH" >&2; exit 127; }
     "$git" diff "$("$git" merge-base HEAD "origin/{SHIFT_BRANCH}")...origin/{SHIFT_BRANCH}" --name-only | "$grep" -q "^composer\.json$"
@@ -184,8 +186,8 @@ If `composer.json` was **not** changed, skip the rest of this step entirely and 
 If `composer.json` **was** changed, scan it for any `dev-*` version constraints (e.g. `"dev-main"`, `"dev-master"`, `"dev-fix-something"`). For each one found:
 1. Look up the package on Packagist to check if a stable release exists:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
        "$composer" show {package} --all
    '
@@ -195,8 +197,8 @@ If `composer.json` **was** changed, scan it for any `dev-*` version constraints 
 
 Then run:
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
     "$composer" update
 '
@@ -245,8 +247,8 @@ For any changes marked as "optional" in the PR:
 After making changes:
 1. Verify tests pass:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        php=$(PATH="$PATH" command -v php) || { echo "php not found on the fixed PATH" >&2; exit 127; }
        "$php" artisan test --compact
    '
@@ -273,8 +275,8 @@ End with: "Would you like to merge this PR?"
 If the user confirms they want to merge:
 1. Check for any uncommitted local changes:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" status --porcelain
    '
@@ -287,16 +289,16 @@ If the user confirms they want to merge:
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" log "origin/{BRANCH}..HEAD"
    '
 ```
 4. If there are unpushed commits, push them:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" push
    '
@@ -305,8 +307,8 @@ If the user confirms they want to merge:
 
 **GitHub:**
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     "$gh" pr merge {PR_NUMBER} --merge --delete-branch
 '

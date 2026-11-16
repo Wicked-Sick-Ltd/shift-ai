@@ -60,17 +60,19 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables, and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command.
 
-Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `env -i` command. Git commands start a clean `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. The curl call passes `SHIFT_API_TOKEN` and does not pass `HOME`. Inside that bash, resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. Git commands start `bash --noprofile --norc` with only `PATH`, `HOME`, and `SSH_AUTH_SOCK`. The curl call passes `SHIFT_API_TOKEN` and does not pass `HOME`. Inside that bash, resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+
+Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
 ```bash
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
     git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
     "$git" status --porcelain
 '
 ```
 
-Each Bash call starts from the project environment again, so every call repeats `env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails, ask the user for that tool's absolute path and use it in place of the `command -v` result.
+Each Bash call starts from the project environment again, so every call repeats `/usr/bin/env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails inside that bash, ask the user for that tool's absolute path and use it in place of the `command -v` result.
 
 ## Steps
 
@@ -98,8 +100,8 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 4. Determine the remote and current branch by running:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        sed=$(PATH="$PATH" command -v sed) || { echo "sed not found on the fixed PATH" >&2; exit 127; }
        "$git" remote get-url origin
@@ -113,8 +115,8 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 5. Check for uncommitted changes by running:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" status --porcelain
    '
@@ -125,8 +127,8 @@ Each Bash call starts from the project environment again, so every call repeats 
 
    If they want to commit, ask for a commit message, then run the command below with that message in place of `{commit message}`. It stages, commits, and pushes the current branch under the clean environment:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin HOME="${HOME-}" SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        "$git" add -A
        "$git" commit -m "$1"
@@ -138,8 +140,8 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
-   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SHIFT_API_TOKEN="${SHIFT_API_TOKEN-}" \
-     "$(PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin command -v bash)" --noprofile --norc -c '
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SHIFT_API_TOKEN="${SHIFT_API_TOKEN-}" \
+     bash --noprofile --norc -c '
        curl=$(PATH="$PATH" command -v curl) || { echo "curl not found on the fixed PATH" >&2; exit 127; }
        "$curl" -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
          -H "Accept: application/json" \
