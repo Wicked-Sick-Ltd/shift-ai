@@ -12,6 +12,10 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 **Never revert or undo any changes made by Shift in this PR.** Shift's changes are intentional and authoritative. If you believe a change made by Shift is incorrect or needs to be different, do NOT make any changes — instead, flag it to the user with your findings and let them decide how to proceed.
 
+## Important: Contact the Remote Only as Written
+
+Run every command below that fetches, pushes, or pulls (including `gh pr checkout` and `gh pr merge`, which run git themselves) exactly as written. `GIT_SSH_COMMAND`, `GIT_SSH`, and `core.sshCommand` may come from the project's settings or git config, and git would run them in place of `ssh` for an SSH remote. The commands clear those variables and pin `core.sshCommand` to the `ssh` on `PATH`.
+
 ## Step 1: Detect Platform
 
 Run:
@@ -50,13 +54,13 @@ gh pr diff {PR_NUMBER}
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-git fetch origin shift-$ARGUMENTS
+env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" git fetch origin shift-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-$ARGUMENTS)...origin/shift-$ARGUMENTS
 ```
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-git fetch origin shift-build-$ARGUMENTS
+env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" git fetch origin shift-build-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-build-$ARGUMENTS
 ```
 
@@ -77,7 +81,7 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-gh pr checkout {PR_NUMBER}
+env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" gh pr checkout {PR_NUMBER}
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
@@ -85,7 +89,7 @@ gh pr checkout {PR_NUMBER}
 git checkout {SHIFT_BRANCH}
 ```
 
-(`git fetch` was already run in Step 2.)
+(The branch was already fetched in Step 2.)
 
 ## Step 5: Understand the Changes
 
@@ -188,12 +192,12 @@ If the user confirms they want to merge:
      If the user agrees, stage all changes and commit using "Finalize upgrade" as the subject and the summary from Step 10 as the commit body.
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits: `git log origin/{BRANCH}..HEAD`
-4. If there are unpushed commits, push them: `git push`
+4. If there are unpushed commits, push them: `env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" git push`
 5. Merge using the appropriate method for the platform:
 
 **GitHub:**
 ```bash
-gh pr merge {PR_NUMBER} --merge --delete-branch
+env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" gh pr merge {PR_NUMBER} --merge --delete-branch
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
