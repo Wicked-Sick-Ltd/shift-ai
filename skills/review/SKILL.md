@@ -16,7 +16,7 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 Every command in this skill that fetches, checks out the PR, pushes, or merges is written out in full below. Run it exactly as written, in one shell call. The project's `.claude/settings.json` is copied into each Bash call and can otherwise choose the program git runs instead of `ssh`, the askpass program git runs (`GIT_ASKPASS` or `core.askPass`; git does not consult `SSH_ASKPASS_REQUIRE`), or a `credential.helper` whose value starts with `!`.
 
-Each command resolves `env`, `ssh`, and `git` on `/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin` and starts that absolute `env` with `-i`. The child receives only `PATH`, `GIT_EXEC_PATH` from `git --exec-path`, `GIT_SSH_COMMAND` set to that `ssh` plus `-F /dev/null -o BatchMode=yes`, `GIT_ALLOW_PROTOCOL`, and `SSH_ASKPASS_REQUIRE`. It does not receive `HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, or linker variables. Direct `git` commands also pass `-c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor=`. `gh pr checkout` and `gh pr merge` create the git shim with `TMPDIR=/tmp`, refuse the directory unless it is an absolute path outside the workspace with no colon or newline, and put only that directory first on `PATH`. Never drop any of that, split it across calls, or run another remote `git` or `gh` command without it.
+Each command resolves `env`, `ssh`, and `git` on `/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin` and starts that absolute `env` with `-i`. The child receives only `PATH`, `GIT_SSH_COMMAND` set to that `ssh` plus `-F /dev/null -o BatchMode=yes`, `GIT_ALLOW_PROTOCOL`, and `SSH_ASKPASS_REQUIRE`. `GIT_EXEC_PATH` is left unset so git uses the libexec compiled into that binary. It does not receive `HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, or linker variables. Direct `git` commands also pass `-c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor=`. `gh pr checkout` and `gh pr merge` create the git shim with `TMPDIR=/tmp`, refuse the directory unless it is an absolute path outside the workspace with no colon or newline, and put only that directory first on `PATH`. Never drop any of that, split it across calls, or run another remote `git` or `gh` command without it.
 
 ## Step 1: Detect Platform
 
@@ -60,10 +60,8 @@ shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
 shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
-shift_exec=$("$shift_git" --exec-path) || { echo 'git exec-path failed; not contacting the remote.' >&2; exit 127; }
 "$shift_env" -i \
   PATH="$shift_path" \
-  GIT_EXEC_PATH="$shift_exec" \
   GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
   GIT_ALLOW_PROTOCOL=ssh:https:http \
   SSH_ASKPASS_REQUIRE=never \
@@ -80,10 +78,8 @@ shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
 shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
-shift_exec=$("$shift_git" --exec-path) || { echo 'git exec-path failed; not contacting the remote.' >&2; exit 127; }
 "$shift_env" -i \
   PATH="$shift_path" \
-  GIT_EXEC_PATH="$shift_exec" \
   GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
   GIT_ALLOW_PROTOCOL=ssh:https:http \
   SSH_ASKPASS_REQUIRE=never \
@@ -119,7 +115,6 @@ shift_gh=$(PATH="$shift_path" command -v gh) || { echo 'gh not found on the fixe
 shift_mktemp=$(PATH="$shift_path" command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_chmod=$(PATH="$shift_path" command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_rm=$(PATH="$shift_path" command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
-shift_exec=$("$shift_git" --exec-path) || { echo 'git exec-path failed; not contacting the remote.' >&2; exit 127; }
 shift_bin=$(TMPDIR=/tmp "$shift_mktemp" -d) || { echo 'mktemp failed; not contacting the remote.' >&2; exit 127; }
 case "$shift_bin" in
   /*) ;;
@@ -128,21 +123,40 @@ esac
 case "$shift_bin" in
   *:*) echo 'temp directory is not a single PATH entry; not contacting the remote.' >&2; exit 127 ;;
 esac
-if [ "$(printf '%s' "$shift_bin" | wc -l)" -ne 0 ]; then
-  echo 'temp directory contains a newline; not contacting the remote.' >&2
-  exit 127
-fi
+case "$shift_bin" in
+  *$'\n'*) echo 'temp directory contains a newline; not contacting the remote.' >&2; exit 127 ;;
+esac
 shift_pwd=$(pwd -P)
 if [[ "$shift_bin" = "$shift_pwd" || "$shift_bin" = "$shift_pwd"/* ]]; then
   echo 'temp directory is inside the workspace; not contacting the remote.' >&2
   exit 127
 fi
 trap '"$shift_rm" -rf "$shift_bin"' EXIT
-printf '#!/bin/sh\nexec %s -c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor= "$@"\n' "$(printf '%q' "$shift_git")" > "$shift_bin/git"
+shift_cat=$(PATH="$shift_path" command -v cat) || { echo 'cat not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_cat" > "$shift_bin/git" << EOF
+#!/bin/sh
+git=$(printf '%q' "$shift_git")
+prev=
+subcmd=
+for arg in "\$@"; do
+  if [ "\$prev" = "-c" ] || [ "\$prev" = "-C" ]; then
+    prev=
+    continue
+  fi
+  case "\$arg" in
+    -c|-C) prev=\$arg ;;
+    -*) ;;
+    *) subcmd=\$arg; break ;;
+  esac
+done
+if [ -n "\$subcmd" ]; then
+  exec "\$git" -c "alias.\${subcmd}=" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+fi
+exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+EOF
 "$shift_chmod" +x "$shift_bin/git"
 "$shift_env" -i \
   PATH="$shift_bin:$shift_path" \
-  GIT_EXEC_PATH="$shift_exec" \
   GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
   GIT_ALLOW_PROTOCOL=ssh:https:http \
   SSH_ASKPASS_REQUIRE=never \
@@ -263,10 +277,8 @@ If the user confirms they want to merge:
    shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
-   shift_exec=$("$shift_git" --exec-path) || { echo 'git exec-path failed; not contacting the remote.' >&2; exit 127; }
    "$shift_env" -i \
      PATH="$shift_path" \
-     GIT_EXEC_PATH="$shift_exec" \
      GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
      GIT_ALLOW_PROTOCOL=ssh:https:http \
      SSH_ASKPASS_REQUIRE=never \
@@ -287,7 +299,6 @@ shift_gh=$(PATH="$shift_path" command -v gh) || { echo 'gh not found on the fixe
 shift_mktemp=$(PATH="$shift_path" command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_chmod=$(PATH="$shift_path" command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
 shift_rm=$(PATH="$shift_path" command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
-shift_exec=$("$shift_git" --exec-path) || { echo 'git exec-path failed; not contacting the remote.' >&2; exit 127; }
 shift_bin=$(TMPDIR=/tmp "$shift_mktemp" -d) || { echo 'mktemp failed; not contacting the remote.' >&2; exit 127; }
 case "$shift_bin" in
   /*) ;;
@@ -296,21 +307,40 @@ esac
 case "$shift_bin" in
   *:*) echo 'temp directory is not a single PATH entry; not contacting the remote.' >&2; exit 127 ;;
 esac
-if [ "$(printf '%s' "$shift_bin" | wc -l)" -ne 0 ]; then
-  echo 'temp directory contains a newline; not contacting the remote.' >&2
-  exit 127
-fi
+case "$shift_bin" in
+  *$'\n'*) echo 'temp directory contains a newline; not contacting the remote.' >&2; exit 127 ;;
+esac
 shift_pwd=$(pwd -P)
 if [[ "$shift_bin" = "$shift_pwd" || "$shift_bin" = "$shift_pwd"/* ]]; then
   echo 'temp directory is inside the workspace; not contacting the remote.' >&2
   exit 127
 fi
 trap '"$shift_rm" -rf "$shift_bin"' EXIT
-printf '#!/bin/sh\nexec %s -c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor= "$@"\n' "$(printf '%q' "$shift_git")" > "$shift_bin/git"
+shift_cat=$(PATH="$shift_path" command -v cat) || { echo 'cat not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_cat" > "$shift_bin/git" << EOF
+#!/bin/sh
+git=$(printf '%q' "$shift_git")
+prev=
+subcmd=
+for arg in "\$@"; do
+  if [ "\$prev" = "-c" ] || [ "\$prev" = "-C" ]; then
+    prev=
+    continue
+  fi
+  case "\$arg" in
+    -c|-C) prev=\$arg ;;
+    -*) ;;
+    *) subcmd=\$arg; break ;;
+  esac
+done
+if [ -n "\$subcmd" ]; then
+  exec "\$git" -c "alias.\${subcmd}=" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+fi
+exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+EOF
 "$shift_chmod" +x "$shift_bin/git"
 "$shift_env" -i \
   PATH="$shift_bin:$shift_path" \
-  GIT_EXEC_PATH="$shift_exec" \
   GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
   GIT_ALLOW_PROTOCOL=ssh:https:http \
   SSH_ASKPASS_REQUIRE=never \

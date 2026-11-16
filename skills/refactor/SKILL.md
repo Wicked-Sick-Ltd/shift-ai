@@ -104,10 +104,8 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
    shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
-   shift_exec=$("$shift_git" --exec-path) || { echo 'git exec-path failed; not contacting the remote.' >&2; exit 127; }
    "$shift_env" -i \
      PATH="$shift_path" \
-     GIT_EXEC_PATH="$shift_exec" \
      GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
      GIT_ALLOW_PROTOCOL=ssh:https:http \
      SSH_ASKPASS_REQUIRE=never \
