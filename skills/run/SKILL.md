@@ -96,7 +96,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
    > You have uncommitted changes. Would you like to commit and push them before running Shift, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push only the current branch before proceeding. Use the review skill's merge-step push command unchanged: it reads the branch's full ref from `git symbolic-ref --quiet HEAD` into a shell variable, pushes only `"HEAD:$ref"` to `origin`, and passes `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec: project settings can make that mirror the clone onto the remote.
 
 5. If the current branch matches the default branch, warn the user and suggest they switch to a dedicated branch before running Shift — for example:
 

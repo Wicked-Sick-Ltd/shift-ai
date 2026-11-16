@@ -188,7 +188,11 @@ If the user confirms they want to merge:
      If the user agrees, stage all changes and commit using "Finalize upgrade" as the subject and the summary from Step 10 as the commit body.
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits: `git log origin/{BRANCH}..HEAD`
-4. If there are unpushed commits, push them: `git push`
+4. If there are unpushed commits, confirm `git branch --show-current` still prints the Shift branch checked out in Step 4 (stop if it does not), then push only that branch:
+   ```bash
+   ref=$(git symbolic-ref --quiet HEAD) && git -c remote.origin.mirror=false -c push.followTags=false push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
+   ```
+   Run it exactly as written. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
 5. Merge using the appropriate method for the platform:
 
 **GitHub:**

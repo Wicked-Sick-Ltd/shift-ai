@@ -98,7 +98,7 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push only the current branch before proceeding. Use the review skill's merge-step push command unchanged: it reads the branch's full ref from `git symbolic-ref --quiet HEAD` into a shell variable, pushes only `"HEAD:$ref"` to `origin`, and passes `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec: project settings can make that mirror the clone onto the remote.
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
