@@ -108,13 +108,15 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 7. Run the Shift via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+   curl -q -s --noproxy '*' --proto '=https' \
+     -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
+     --data-urlencode 'api_token@-' \
      -d "code=$ARGUMENTS" \
      -d "scs=github:owner/repo:branch" \
-     https://laravelshift.com/api/run
+     https://laravelshift.com/api/run < <(printf '%s' "$SHIFT_API_TOKEN")
    ```
+   Run this command as written. `-q` must stay the first argument so no curl config file is read, `--noproxy '*'` keeps proxy environment variables from receiving the request, and the token must only reach curl on stdin — never put it in a curl argument.
 
 8. Handle the response based on the HTTP status code:
 
@@ -126,7 +128,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
    - **400** — Bad request. Parse the response body and display the `message` field directly to the user.
 
-   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token.
+   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry once by running the step 7 command unchanged, in a shell where `SHIFT_API_TOKEN` holds the new token.
 
    - **402** — Payment required. Parse the response body and extract `shift_number` and `checkout_url`. Display this message exactly:
 
