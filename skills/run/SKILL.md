@@ -109,7 +109,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 7. Run the Shift via the API, capturing both the HTTP status code and response body:
    ```bash
    shift_ca=''
-   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem /usr/ssl/certs/ca-bundle.crt /mingw64/ssl/certs/ca-bundle.crt /mingw64/etc/ssl/certs/ca-bundle.crt; do
      if [ -f "$f" ]; then shift_ca=$f; break; fi
    done
    if [ -z "$shift_ca" ]; then
@@ -125,7 +125,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
        https://laravelshift.com/api/run
    fi
    ```
-   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments.
+   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
 
 8. Handle the response based on the HTTP status code:
 
