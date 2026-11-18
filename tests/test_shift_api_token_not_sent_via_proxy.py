@@ -11,6 +11,15 @@ These tests execute the documented commands. They fail while curl still
 delivers the placeholder to a proxy whose certificate was signed by the CA
 named in that environment. They pass once each command refuses that proxy
 and that CA. The placeholder is not a credential.
+
+Curl 8.5.0 findfile() loads the first readable .curlrc from CURL_HOME,
+XDG_CONFIG_HOME, HOME, HOME/.config/curlrc, then the password-database
+home. The run environment leaves the first two unset and points HOME at
+an empty .curlrc, so that search stops. A proxy, noproxy, or cacert entry
+in the operator's config would otherwise leave the recording proxy empty
+while the token was still sent. Commands that clear the environment still
+have to invoke curl -q, because -q is what skips findfile() when HOME is
+unset.
 """
 
 from __future__ import annotations
@@ -57,6 +66,14 @@ def documented_token_commands() -> list[tuple[Path, str]]:
             if "curl" in body and "SHIFT_API_TOKEN" in body:
                 found.append((path, body.strip() + "\n"))
     return found
+
+
+def isolated_curl_home(directory: Path) -> Path:
+    """HOME that stops curl's config search before the operator's files."""
+    home = directory / "home"
+    home.mkdir(exist_ok=True)
+    (home / ".curlrc").write_text("")
+    return home
 
 
 def _free_port() -> int:
@@ -205,7 +222,8 @@ class ShiftTokenProxyTests(unittest.TestCase):
         self.assertIn("refactor", parents)
         self.assertTrue(all(name == "SKILL.md" for name in names))
         for _, command in self.commands:
-            self.assertIn("api_token=$SHIFT_API_TOKEN", command)
+            self.assertIn("printf 'api_token=%s' \"$SHIFT_API_TOKEN\"", command)
+            self.assertIn("curl -q ", command)
             self.assertIn("https://laravelshift.com/api/", command)
 
     def test_curl_does_not_disclose_token_to_attacker_proxy(self) -> None:
@@ -218,15 +236,43 @@ class ShiftTokenProxyTests(unittest.TestCase):
                         captured = self._run(command, origin, proxy_var, ca_mode)
                         self.assertNotIn(TOKEN.encode(), captured)
 
-    def _run(self, command: str, origin: int, proxy_var: str, ca_mode: str) -> bytes:
+    def test_noproxy_curlrc_cannot_hide_a_proxied_post(self) -> None:
+        origin = _free_port()
+        command = (
+            "curl -s -o /dev/null -X POST "
+            '-d "api_token=$SHIFT_API_TOKEN" '
+            "https://laravelshift.com/api/run\n"
+        )
+        hostile = Path(self._tmpdir.name) / "hostile-home"
+        hostile.mkdir()
+        (hostile / ".curlrc").write_text('noproxy = "*"\n')
+        hidden = self._run(
+            command, origin, "https_proxy", "CURL_CA_BUNDLE", hostile
+        )
+        self.assertNotIn(TOKEN.encode(), hidden)
+        shown = self._run(command, origin, "https_proxy", "CURL_CA_BUNDLE")
+        self.assertIn(TOKEN.encode(), shown)
+
+    def _run(
+        self,
+        command: str,
+        origin: int,
+        proxy_var: str,
+        ca_mode: str,
+        home: Path | None = None,
+    ) -> bytes:
         proxy = RecordingProxy(self.material["cert"], self.material["key"])
         proxy.start()
         script = command.replace(
             "https://laravelshift.com", f"https://127.0.0.1:{origin}", 1
         )
+        if home is None:
+            home = isolated_curl_home(Path(self._tmpdir.name))
+        if home.resolve() == Path.home().resolve():
+            raise AssertionError("curl HOME must not be the operator home")
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin"),
-            "HOME": os.environ.get("HOME", "/tmp"),
+            "HOME": str(home),
             "SHIFT_API_TOKEN": TOKEN,
             proxy_var: f"http://127.0.0.1:{proxy.port}",
         }
