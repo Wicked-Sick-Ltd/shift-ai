@@ -20,6 +20,11 @@ in the operator's config would otherwise leave the recording proxy empty
 while the token was still sent. Commands that clear the environment still
 have to invoke curl -q, because -q is what skips findfile() when HOME is
 unset.
+
+An empty capture counts only when that command exits 0, or curl exits 7
+(connection refused) or 60 (peer certificate rejected). Any other status,
+including a timeout, means curl did not run far enough for silence to
+show that the token was withheld.
 """
 
 from __future__ import annotations
@@ -54,6 +59,10 @@ PROXY_VARIABLES = (
     "HTTP_PROXY",
 )
 CA_MODES = ("CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR")
+# 0: the request finished. 7: nothing accepted the connection.
+# 60: the peer certificate was rejected. Other codes mean the shell
+# failed before curl could show whether the token was sent.
+ACCEPTED_EXIT_CODES = frozenset({0, 7, 60})
 
 
 def documented_token_commands() -> list[tuple[Path, str]]:
@@ -253,6 +262,23 @@ class ShiftTokenProxyTests(unittest.TestCase):
         shown = self._run(command, origin, "https_proxy", "CURL_CA_BUNDLE")
         self.assertIn(TOKEN.encode(), shown)
 
+    def test_run_rejects_a_command_that_never_executes_curl(self) -> None:
+        origin = _free_port()
+        with self.assertRaises(AssertionError) as caught:
+            self._run("definitely-not-curl\n", origin, "https_proxy", "CURL_CA_BUNDLE")
+        self.assertIn("127", str(caught.exception))
+
+    def test_run_reports_a_timeout(self) -> None:
+        origin = _free_port()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self._run(
+                "sleep 30\n",
+                origin,
+                "https_proxy",
+                "CURL_CA_BUNDLE",
+                timeout=1,
+            )
+
     def _run(
         self,
         command: str,
@@ -260,6 +286,7 @@ class ShiftTokenProxyTests(unittest.TestCase):
         proxy_var: str,
         ca_mode: str,
         home: Path | None = None,
+        timeout: float = 10,
     ) -> bytes:
         proxy = RecordingProxy(self.material["cert"], self.material["key"])
         proxy.start()
@@ -281,18 +308,21 @@ class ShiftTokenProxyTests(unittest.TestCase):
         else:
             env[ca_mode] = self.material["ca"]
         try:
-            subprocess.run(
+            completed = subprocess.run(
                 ["bash", "-c", script],
                 env=env,
                 cwd=REPO,
                 capture_output=True,
-                timeout=10,
+                timeout=timeout,
                 check=False,
             )
-        except subprocess.TimeoutExpired:
-            pass
         finally:
             proxy.stop()
+        if completed.returncode not in ACCEPTED_EXIT_CODES:
+            detail = completed.stderr.decode(errors="replace")[:500]
+            raise AssertionError(
+                f"command exited {completed.returncode}, stderr={detail!r}"
+            )
         return b"".join(proxy.captured)
 
 
