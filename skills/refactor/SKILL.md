@@ -98,7 +98,13 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, then stage, commit, and push the current branch before proceeding:
+   ```bash
+   git add -A
+   git commit -m "{commit message}"
+   env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" git push -u origin HEAD
+   ```
+   Run the push exactly as written. `GIT_SSH_COMMAND`, `GIT_SSH`, and `core.sshCommand` may come from the project's settings or git config, and git would run them in place of `ssh` for an SSH remote.
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 

@@ -96,7 +96,13 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
    > You have uncommitted changes. Would you like to commit and push them before running Shift, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, then stage, commit, and push the current branch before proceeding:
+   ```bash
+   git add -A
+   git commit -m "{commit message}"
+   env -u GIT_SSH_COMMAND -u GIT_SSH -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0="$(command -v ssh)" git push -u origin HEAD
+   ```
+   Run the push exactly as written. `GIT_SSH_COMMAND`, `GIT_SSH`, and `core.sshCommand` may come from the project's settings or git config, and git would run them in place of `ssh` for an SSH remote.
 
 5. If the current branch matches the default branch, warn the user and suggest they switch to a dedicated branch before running Shift — for example:
 
