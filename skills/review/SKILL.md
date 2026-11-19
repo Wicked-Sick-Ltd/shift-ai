@@ -113,12 +113,16 @@ git diff $(git merge-base HEAD origin/{SHIFT_BRANCH})...origin/{SHIFT_BRANCH} --
 
 If `composer.json` was **not** changed, skip the rest of this step entirely and proceed to Step 7.
 
+**Every Composer command in this skill must be run from the repository root, exactly as written: prefixed with `COMPOSER=composer.json` and with `--no-plugins --no-scripts`.** Do this on the same command line every time, including re-runs. The `COMPOSER` environment variable may be inherited from the project's settings and would make Composer read a different manifest than the `composer.json` you reviewed; the flags stop the manifest's scripts and plugins from executing. Never drop the prefix or the flags, and never set or unset `COMPOSER` in a separate command.
+
 If `composer.json` **was** changed, scan it for any `dev-*` version constraints (e.g. `"dev-main"`, `"dev-master"`, `"dev-fix-something"`). For each one found:
-1. Look up the package on Packagist to check if a stable release exists: `composer show {package} --all`
+1. Look up the package on Packagist to check if a stable release exists: `COMPOSER=composer.json composer show {package} --all --no-plugins --no-scripts`
 2. If a compatible stable version is available, update the constraint in `composer.json` to the appropriate semver range (e.g. `^1.2`) and track it as a swapped dependency for the summary in Step 10
 3. If no stable release exists, leave the `dev-*` constraint as-is
 
-Then run `composer update`.
+Then run `COMPOSER=composer.json composer update --no-plugins --no-scripts`.
+
+Because scripts are skipped, if the project has an `artisan` file, run `php artisan package:discover --ansi` after a successful update to refresh Laravel's package manifest.
 
 After running (whether it succeeds or fails):
 
@@ -136,8 +140,8 @@ When collecting these suggestions:
 
 If `composer update` failed, attempt to systematically resolve the incompatibilities before stopping:
 1. Read the error output carefully to identify which packages have conflicting version constraints
-2. For each conflicting package, check the latest compatible version: `composer show {package} --all` or look up the package on packagist.org
-3. Update the version constraint in `composer.json` to one that satisfies all dependencies, then re-run `composer update`
+2. For each conflicting package, check the latest compatible version: `COMPOSER=composer.json composer show {package} --all --no-plugins --no-scripts` or look up the package on packagist.org
+3. Update the version constraint in `composer.json` to one that satisfies all dependencies, then re-run `COMPOSER=composer.json composer update --no-plugins --no-scripts`
 4. Repeat for any remaining conflicts
 5. If a conflict involves a package that has a suggested follow-up Shift (from comments above), surface that to the user as the recommended resolution instead of manually editing constraints
 6. If you cannot resolve the incompatibilities after a systematic attempt, stop and explain exactly which packages are conflicting and why, so the user can decide how to proceed
