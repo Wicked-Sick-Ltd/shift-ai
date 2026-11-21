@@ -251,6 +251,13 @@ function runSnippet(string $snippet, bool $applySettings): array
         ['acme/devdep', 'acme/devdep', 'acme/devdep'],
         $snippet
     );
+    // The skill pins PATH. Put this test's Composer on that path so the
+    // pinned binary is the one the assertions run.
+    $snippet = str_replace(
+        'PATH=/usr/bin:/bin:',
+        'PATH=' . composerBinDir() . ':/usr/bin:/bin:',
+        $snippet
+    );
 
     $home = $dir . '/.test-home';
     mkdir($home . '/composer-home', 0777, true);

@@ -232,7 +232,10 @@ class ShiftTokenProxyTests(unittest.TestCase):
         self.assertTrue(all(name == "SKILL.md" for name in names))
         for _, command in self.commands:
             self.assertIn("printf 'api_token=%s' \"$SHIFT_API_TOKEN\"", command)
-            self.assertIn('"$shift_curl" -q ', command)
+            self.assertIn('"$shift_curl"', command)
+            self.assertIn(" -q ", command)
+            self.assertIn("/usr/bin/env -i ", command)
+            self.assertIn("bash --noprofile --norc", command)
             self.assertIn(
                 "for c in /usr/bin/curl /bin/curl /usr/local/bin/curl /mingw64/bin/curl /mingw64/bin/curl.exe",
                 command,

@@ -13,7 +13,7 @@ This skill walks you through three steps:
 
 1. **Analyze** — scans your `composer.json` and `package.json` to determine the most relevant Shift to run (Laravel version upgrade, Livewire, Tailwind, PHPUnit, Laravel Slimmer, or Tests Generator)
 2. **Run** — submits the Shift job via the API against your current branch
-3. **Review** — checks out the Shift pull request, runs `composer update`, acts on the PR instructions, runs your test suite, and offers to merge when everything looks good
+3. **Review** — checks out the Shift pull request, updates Composer dependencies, acts on the PR instructions, runs your test suite, and offers to merge when everything looks good
 
 ## Usage
 

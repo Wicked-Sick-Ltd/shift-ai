@@ -56,6 +56,43 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 - **Adopt Laravel type hints** (`type-hints`): Add type hints to Laravel application code. (Premium Task)
 - **Compare core files** (`compare-core-files`): Compare and upgrade core files. (Premium Task)
 
+## Command Environment
+
+Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables, and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command.
+
+Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. Git commands start `bash --noprofile --norc` with only `PATH` and `SSH_AUTH_SOCK`. Do not pass the outer shell's `HOME`. Inside that bash, set `HOME` from the passwd entry for the current uid, or from Directory Services on macOS, and set `COMPOSER_HOME` to `$HOME/.composer` before running a tool. The curl call receives the token on stdin and does not pass `HOME` or `SHIFT_API_TOKEN` into that process. Then resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+
+Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
+
+```bash
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
+    uid=$(id -u)
+    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
+    fi
+    if [ -z "$passwd_home" ]; then
+      echo "could not resolve the passwd home; not running the command" >&2
+      exit 127
+    fi
+    HOME=$passwd_home
+    export HOME
+    COMPOSER_HOME=$HOME/.composer
+    export COMPOSER_HOME
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" status --porcelain
+'
+```
+
+Each Bash call starts from the project environment again, so every call repeats `/usr/bin/env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails inside that bash, ask the user for that tool's absolute path and use it in place of the `command -v` result.
+
 ## Steps
 
 1. If no task slug was provided in `$ARGUMENTS`, display the full task list above, followed by:
@@ -82,23 +119,70 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
 4. Determine the remote and current branch by running:
    ```bash
-   git remote get-url origin
-   git branch --show-current
-   git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
-   ```
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
+       uid=$(id -u)
+       passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+       if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+         passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
+         echo "could not resolve the passwd home; not running the command" >&2
+         exit 127
+       fi
+       HOME=$passwd_home
+       export HOME
+       COMPOSER_HOME=$HOME/.composer
+       export COMPOSER_HOME
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       sed=$(PATH="$PATH" command -v sed) || { echo "sed not found on the fixed PATH" >&2; exit 127; }
+       "$git" remote get-url origin
+       "$git" branch --show-current
+       "$git" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | "$sed" "s@^refs/remotes/origin/@@"
+   '
+```
    Parse the remote URL to extract `owner/repo` — handle both SSH (`git@github.com:owner/repo.git`) and HTTPS (`https://github.com/owner/repo.git`) formats. Strip any trailing `.git`. Also detect the git platform (GitHub, GitLab, or Bitbucket) from the remote URL hostname, and construct the HTTPS repo URL (e.g. `https://github.com/owner/repo`).
 
    The third command returns the remote default branch (e.g. `main` or `master`). If it produces no output, fall back to treating `main` and `master` as default branch names.
 
 5. Check for uncommitted changes by running:
    ```bash
-   git status --porcelain
-   ```
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+     bash --noprofile --norc -c '
+       uid=$(id -u)
+       passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+       if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+         passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
+         echo "could not resolve the passwd home; not running the command" >&2
+         exit 127
+       fi
+       HOME=$passwd_home
+       export HOME
+       COMPOSER_HOME=$HOME/.composer
+       export COMPOSER_HOME
+       git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+       "$git" status --porcelain
+   '
+```
    If there is any output, prompt the user:
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), and commit. Then push only the current branch with the review skill's merge-step push, in one shell call. It runs the `env` from the fixed PATH with `-i`, passes only the ssh command and protocol allow-list, clears credential helpers, askpass, fetch/push/checkout aliases, and `core.fsmonitor`, reads the branch's full ref from `git symbolic-ref --quiet HEAD`, and pushes only `"HEAD:$ref"` with `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec:
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), and commit, running git through the clean `/usr/bin/env -i` command above. Then push only the current branch with this command. It runs `env` from the fixed PATH with `-i`, passes only the ssh command and protocol allow-list, clears credential helpers, askpass, fetch/push/checkout aliases, and `core.fsmonitor`, reads the branch's full ref from `git symbolic-ref --quiet HEAD`, and pushes only `"HEAD:$ref"` with `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec:
    ```bash
    shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
    shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
@@ -135,8 +219,8 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
      echo 'No system CA bundle or curl found; not sending the Shift API token.' >&2
      exit 1
    fi
-   printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin:/mingw64/bin \
-     "$shift_curl" -q -s --noproxy '*' --proto '=https' --cacert "$shift_ca" \
+   printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin \
+     bash --noprofile --norc -c 'exec "$@"' _ "$shift_curl" -q -s --noproxy '*' --proto '=https' --cacert "$shift_ca" \
      -o /tmp/shift_response.json -w "%{http_code}" -X POST \
      -H 'Accept: application/json' \
      -d @- \
@@ -149,7 +233,7 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
      exit "$shift_curl_status"
    fi
    ```
-   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
+   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. The absolute `curl` binary runs inside that `env -i` bash, started with `--noprofile --norc`. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
 
 8. Handle the response based on the HTTP status code. If step 7 exits non-zero, or prints no status, stop and tell the user the request was not sent. Do not read `/tmp/shift_response.json` in that case; step 7 removes it when it cannot send, so a body left by an earlier run is not this request's result.
 
