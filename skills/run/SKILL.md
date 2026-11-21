@@ -66,7 +66,7 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables, and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command.
 
-Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. Git commands start `bash --noprofile --norc` with only `PATH` and `SSH_AUTH_SOCK`. Do not pass the outer shell's `HOME`. Inside that bash, set `HOME` from the passwd entry for the current uid and set `COMPOSER_HOME` to `$HOME/.composer` before running a tool. The curl call receives the token on stdin and does not pass `HOME` or `SHIFT_API_TOKEN` into that process. Then resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+Run **every** tool for this skill, including commands you write yourself (commits, pushes, branch creation), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. Git commands start `bash --noprofile --norc` with only `PATH` and `SSH_AUTH_SOCK`. Do not pass the outer shell's `HOME`. Inside that bash, set `HOME` from the passwd entry for the current uid, or from Directory Services on macOS, and set `COMPOSER_HOME` to `$HOME/.composer` before running a tool. The curl call receives the token on stdin and does not pass `HOME` or `SHIFT_API_TOKEN` into that process. Then resolve each tool with `command -v` on the fixed `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
 
 Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
@@ -77,6 +77,12 @@ Claude Code starts the Bash tool before this snippet runs, so a project `BASH_EN
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -119,6 +125,12 @@ Each Bash call starts from the project environment again, so every call repeats 
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
        fi
        if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2
          exit 127
        fi
@@ -145,6 +157,12 @@ Each Bash call starts from the project environment again, so every call repeats 
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
        if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
        fi
        if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2

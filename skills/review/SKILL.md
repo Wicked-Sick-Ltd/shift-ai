@@ -16,7 +16,7 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 Project Claude settings are copied into every Bash call. That includes `PATH`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and `DYLD_*`. Assigning a fixed `PATH` and `unset -f` does not stop git from applying those config variables (for example `alias.status` or `core.fsmonitor`), and it does not stop the dynamic linker. `BASH_ENV` is sourced before the first line of the command, so a trap set there survives `unset -f`.
 
-Run **every** tool for this skill, including commands you write yourself (commits, migrations, code style fixers), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. That bash is `bash --noprofile --norc` with only `PATH` and `SSH_AUTH_SOCK`. Do not pass the outer shell's `HOME`. Inside the bash, set `HOME` from the passwd entry for the current uid and set `COMPOSER_HOME` to `$HOME/.composer` before running a tool. Then resolve each tool with `command -v` on that `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
+Run **every** tool for this skill, including commands you write yourself (commits, migrations, code style fixers), as one `/usr/bin/env -i` command. The absolute `/usr/bin/env` looks up `bash` on the fixed `PATH` below; do not resolve `env` or `bash` in the outer shell. That bash is `bash --noprofile --norc` with only `PATH` and `SSH_AUTH_SOCK`. Do not pass the outer shell's `HOME`. Inside the bash, set `HOME` from the passwd entry for the current uid, or from Directory Services on macOS, and set `COMPOSER_HOME` to `$HOME/.composer` before running a tool. Then resolve each tool with `command -v` on that `PATH` and execute the absolute path. Do not pass git-config variables, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
 
 Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
@@ -27,6 +27,12 @@ Claude Code starts the Bash tool before this snippet runs, so a project `BASH_EN
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -53,6 +59,12 @@ Run:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -82,6 +94,12 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
     fi
     if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
+    fi
+    if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
       exit 127
     fi
@@ -109,6 +127,12 @@ If not, tell the user to install it from https://cli.github.com and stop.
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
     fi
     if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
+    fi
+    if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
       exit 127
     fi
@@ -130,6 +154,12 @@ If no PR is found, try the fallback branch name:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -155,6 +185,12 @@ Then fetch the description, comments, and diff:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -184,6 +220,12 @@ The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
     fi
     if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
+    fi
+    if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
       exit 127
     fi
@@ -205,6 +247,12 @@ If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -231,6 +279,12 @@ Before checking out the PR branch, verify the working directory is clean:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -262,6 +316,12 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
     fi
     if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
+    fi
+    if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
       exit 127
     fi
@@ -283,6 +343,12 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -321,6 +387,12 @@ First, check whether `composer.json` was changed as part of this PR:
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
     fi
     if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
+    fi
+    if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
       exit 127
     fi
@@ -343,6 +415,12 @@ First, check whether `composer.json` was changed as part of this PR:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -373,6 +451,12 @@ If `composer.json` **was** changed, scan it for any `dev-*` version constraints 
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
        fi
        if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2
          exit 127
        fi
@@ -395,6 +479,12 @@ Then run:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -462,6 +552,12 @@ After making changes:
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
        fi
        if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2
          exit 127
        fi
@@ -503,6 +599,12 @@ If the user confirms they want to merge:
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
        fi
        if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2
          exit 127
        fi
@@ -530,6 +632,12 @@ If the user confirms they want to merge:
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
        fi
        if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
+       fi
+       if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2
          exit 127
        fi
@@ -541,7 +649,7 @@ If the user confirms they want to merge:
        "$git" log "origin/{BRANCH}..HEAD"
    '
 ```
-4. If there are unpushed commits, push them:
+4. If there are unpushed commits, first confirm `git branch --show-current` still prints the Shift branch checked out in Step 4, and stop if it does not. Only then push that branch:
    ```bash
    /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
@@ -549,6 +657,12 @@ If the user confirms they want to merge:
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
        if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
          passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+       fi
+       if [ -z "$passwd_home" ]; then
+         dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+         if [ -n "$dscl" ]; then
+           passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+         fi
        fi
        if [ -z "$passwd_home" ]; then
          echo "could not resolve the passwd home; not running the command" >&2
@@ -560,10 +674,14 @@ If the user confirms they want to merge:
        export COMPOSER_HOME
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
        ref=$("$git" symbolic-ref --quiet HEAD) || { echo "HEAD is not a branch; not pushing" >&2; exit 1; }
+       case "$("$git" branch --show-current)" in
+         {BRANCH}) ;;
+         *) echo "HEAD is not the Shift branch; not pushing" >&2; exit 1 ;;
+       esac
        "$git" -c remote.origin.mirror=false -c push.followTags=false push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
    '
 ```
-   Confirm `git branch --show-current` still prints the Shift branch checked out in Step 4, and stop if it does not. Run the push exactly as written. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
+   Run the push exactly as written. The command itself refuses to push unless the current branch is `{BRANCH}`. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
 5. Merge using the appropriate method for the platform:
 
 **GitHub** — `--match-head-commit` makes the merge fail if the pull request's head is not the commit you reviewed, tested, and pushed:
@@ -574,6 +692,12 @@ If the user confirms they want to merge:
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
@@ -598,6 +722,12 @@ If the merge fails, report the error to the user and stop. Once it succeeds, `gh
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
     if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
       passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
+      if [ -n "$dscl" ]; then
+        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
+      fi
     fi
     if [ -z "$passwd_home" ]; then
       echo "could not resolve the passwd home; not running the command" >&2
