@@ -95,6 +95,8 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 ```
 If not, tell the user to install it from https://cli.github.com and stop.
 
+**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Run each one inside the clean `/usr/bin/env -i` command, which does not pass `GH_REPO` or `GH_HOST`, and pass `--repo` from `git remote get-url origin` using the `git` resolved on that fixed PATH. Never drop `--repo` or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
+
 ## Step 2: Find the PR and Fetch Details
 
 **GitHub:**
@@ -115,7 +117,8 @@ If not, tell the user to install it from https://cli.github.com and stop.
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr list --head "shift-$1" --json number,title,body,url
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr list --head "shift-$1" --json number,title,body,url,headRefName,baseRefName --repo "$("$git" remote get-url origin)"
 ' _ "$ARGUMENTS"
 ```
 
@@ -137,11 +140,12 @@ If no PR is found, try the fallback branch name:
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr list --head "shift-build-$1" --json number,title,body,url
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr list --head "shift-build-$1" --json number,title,body,url,headRefName,baseRefName --repo "$("$git" remote get-url origin)"
 ' _ "$ARGUMENTS"
 ```
 
-If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number for subsequent steps.
+If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number, its head branch (`headRefName`) and its base branch (`baseRefName`) for subsequent steps.
 
 Then fetch the description, comments, and diff:
 ```bash
@@ -161,8 +165,10 @@ Then fetch the description, comments, and diff:
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr view {PR_NUMBER} --comments
-    "$gh" pr diff {PR_NUMBER}
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    repo=$("$git" remote get-url origin)
+    "$gh" pr view {PR_NUMBER} --comments --repo "$repo"
+    "$gh" pr diff {PR_NUMBER} --repo "$repo"
 '
 ```
 
@@ -264,7 +270,8 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr checkout {PR_NUMBER}
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr checkout {PR_NUMBER} --repo "$("$git" remote get-url origin)"
 '
 ```
 
@@ -323,7 +330,8 @@ First, check whether `composer.json` was changed as part of this PR:
     export COMPOSER_HOME
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
     grep=$(PATH="$PATH" command -v grep) || { echo "grep not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr diff {PR_NUMBER} --name-only | "$grep" -q "^composer\.json$"
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$gh" pr diff {PR_NUMBER} --name-only --repo "$("$git" remote get-url origin)" | "$grep" -q "^composer\.json$"
 '
 ```
 
@@ -352,6 +360,8 @@ First, check whether `composer.json` was changed as part of this PR:
 
 If `composer.json` was **not** changed, skip the rest of this step entirely and proceed to Step 7.
 
+**Every Composer command in this skill must be run from the repository root, exactly as written: prefixed with `COMPOSER=composer.json` and with `--no-plugins --no-scripts`.** Do this on the same command line every time, including re-runs. The `COMPOSER` environment variable may be inherited from the project's settings and would make Composer read a different manifest than the `composer.json` you reviewed; the flags stop the manifest's scripts and plugins from executing. Never drop the prefix or the flags, and never set or unset `COMPOSER` in a separate command.
+
 If `composer.json` **was** changed, scan it for any `dev-*` version constraints (e.g. `"dev-main"`, `"dev-master"`, `"dev-fix-something"`). For each one found:
 1. Look up the package on Packagist to check if a stable release exists:
    ```bash
@@ -371,7 +381,7 @@ If `composer.json` **was** changed, scan it for any `dev-*` version constraints 
        COMPOSER_HOME=$HOME/.composer
        export COMPOSER_HOME
        composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
-       "$composer" show {package} --all
+       COMPOSER=composer.json "$composer" show {package} --all --no-plugins --no-scripts
    '
 ```
 2. If a compatible stable version is available, update the constraint in `composer.json` to the appropriate semver range (e.g. `^1.2`) and track it as a swapped dependency for the summary in Step 10
@@ -395,9 +405,11 @@ Then run:
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
     composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
-    "$composer" update
+    COMPOSER=composer.json "$composer" update --no-plugins --no-scripts
 '
 ```
+
+Because scripts are skipped, if the project has an `artisan` file, run `php artisan package:discover --ansi` after a successful update to refresh Laravel's package manifest. Run that `php` through the same clean `/usr/bin/env -i` command.
 
 After running (whether it succeeds or fails):
 
@@ -415,7 +427,7 @@ When collecting these suggestions:
 
 If the Composer update failed, attempt to systematically resolve the incompatibilities before stopping:
 1. Read the error output carefully to identify which packages have conflicting version constraints
-2. For each conflicting package, check the latest compatible version with the pinned Composer `show` command above, or look up the package on packagist.org
+2. For each conflicting package, check the latest compatible version with the pinned Composer `show` command above (`COMPOSER=composer.json`, `--no-plugins`, `--no-scripts`), or look up the package on packagist.org
 3. Update the version constraint in `composer.json` to one that satisfies all dependencies, then re-run the pinned Composer `update` command above
 4. Repeat for any remaining conflicts
 5. If a conflict involves a package that has a suggested follow-up Shift (from comments above), surface that to the user as the recommended resolution instead of manually editing constraints
@@ -547,12 +559,14 @@ If the user confirms they want to merge:
        COMPOSER_HOME=$HOME/.composer
        export COMPOSER_HOME
        git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
-       "$git" push
+       ref=$("$git" symbolic-ref --quiet HEAD) || { echo "HEAD is not a branch; not pushing" >&2; exit 1; }
+       "$git" -c remote.origin.mirror=false -c push.followTags=false push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
    '
 ```
+   Confirm `git branch --show-current` still prints the Shift branch checked out in Step 4, and stop if it does not. Run the push exactly as written. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
 5. Merge using the appropriate method for the platform:
 
-**GitHub:**
+**GitHub** — `--match-head-commit` makes the merge fail if the pull request's head is not the commit you reviewed, tested, and pushed:
 ```bash
 /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
@@ -570,7 +584,33 @@ If the user confirms they want to merge:
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
     gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr merge {PR_NUMBER} --merge --delete-branch
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    head=$("$git" rev-parse HEAD)
+    "$gh" pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$head" --repo "$("$git" remote get-url origin)"
+'
+```
+
+If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch, still inside the clean environment:
+```bash
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+  bash --noprofile --norc -c '
+    uid=$(id -u)
+    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
+    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
+      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
+    fi
+    if [ -z "$passwd_home" ]; then
+      echo "could not resolve the passwd home; not running the command" >&2
+      exit 127
+    fi
+    HOME=$passwd_home
+    export HOME
+    COMPOSER_HOME=$HOME/.composer
+    export COMPOSER_HOME
+    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
+    "$git" checkout {BASE_BRANCH}
+    "$git" pull --ff-only
+    "$git" branch -d {BRANCH}
 '
 ```
 
