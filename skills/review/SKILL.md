@@ -21,7 +21,7 @@ Run **every** tool for this skill, including commands you write yourself (commit
 Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -49,11 +49,17 @@ Claude Code starts the Bash tool before this snippet runs, so a project `BASH_EN
 
 Each Bash call starts from the project environment again, so every call repeats `/usr/bin/env -i`. Never add directories from the current `PATH`, the project, or its settings. If `command -v` fails inside that bash, ask the user for that tool's absolute path and use it in place of the `command -v` result.
 
+## Important: Commands That Contact the Git Remote
+
+Every command in this skill that fetches, checks out the PR, pushes, or merges is written out in full below. Run it exactly as written, in one shell call. The project's `.claude/settings.json` is copied into each Bash call and can otherwise choose the program git runs instead of `ssh`, the askpass program git runs (`GIT_ASKPASS` or `core.askPass`; git does not consult `SSH_ASKPASS_REQUIRE`), or a `credential.helper` whose value starts with `!`.
+
+Each command resolves `env`, `ssh`, and `git` on `/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin` and starts that absolute `env` with `-i`. The child receives only `PATH`, `GIT_SSH_COMMAND` set to that `ssh` plus `-F /dev/null -o BatchMode=yes`, `GIT_ALLOW_PROTOCOL`, and `SSH_ASKPASS_REQUIRE`. `gh` also receives `HOME` from the passwd entry or Directory Services, and `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, and `GH_CONFIG_DIR` when they are already set, so it can authenticate. `GIT_EXEC_PATH` is left unset so git uses the libexec compiled into that binary. The child does not receive the outer shell's `HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, or linker variables. Direct `git` commands also pass `-c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor=`. `gh pr checkout` and `gh pr merge` create the git shim with `TMPDIR=/tmp`, refuse the directory unless it is an absolute path outside the workspace with no colon or newline, and put only that directory first on `PATH`. Never drop any of that, split it across calls, or run another remote `git` or `gh` command without it.
+
 ## Step 1: Detect Platform
 
 Run:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -86,7 +92,7 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 
 **GitHub only**: Check that `gh` is installed:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -113,13 +119,13 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 ```
 If not, tell the user to install it from https://cli.github.com and stop.
 
-**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Run each one inside the clean `/usr/bin/env -i` command, which does not pass `GH_REPO` or `GH_HOST`, and pass `--repo` from `git remote get-url origin` using the `git` resolved on that fixed PATH. Never drop `--repo` or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
+**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Run it inside `env -i`, which does not pass `GH_REPO` or `GH_HOST`, and pass `--repo` from `git remote get-url origin` using `git` resolved on the fixed PATH. `gh pr checkout` and `gh pr merge` also pass `HOME` from the passwd entry or Directory Services, and `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, and `GH_CONFIG_DIR` when they are already set. Never drop `--repo` or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
 
 ## Step 2: Find the PR and Fetch Details
 
 **GitHub:**
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -148,7 +154,7 @@ If not, tell the user to install it from https://cli.github.com and stop.
 
 If no PR is found, try the fallback branch name:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -179,7 +185,7 @@ If still no PR is found, tell the user and stop. If multiple PRs are found, show
 
 Then fetch the description, comments, and diff:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -212,60 +218,38 @@ Then fetch the description, comments, and diff:
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  bash --noprofile --norc -c '
-    uid=$(id -u)
-    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
-    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
-      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
-    fi
-    if [ -z "$passwd_home" ]; then
-      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
-      if [ -n "$dscl" ]; then
-        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
-      fi
-    fi
-    if [ -z "$passwd_home" ]; then
-      echo "could not resolve the passwd home; not running the command" >&2
-      exit 127
-    fi
-    HOME=$passwd_home
-    export HOME
-    COMPOSER_HOME=$HOME/.composer
-    export COMPOSER_HOME
-    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
-    "$git" fetch origin "shift-$1"
-    "$git" diff "$("$git" merge-base HEAD "origin/shift-$1")...origin/shift-$1"
-' _ "$ARGUMENTS"
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= fetch origin shift-$ARGUMENTS
+git diff $(git merge-base HEAD origin/shift-$ARGUMENTS)...origin/shift-$ARGUMENTS
 ```
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  bash --noprofile --norc -c '
-    uid=$(id -u)
-    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
-    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
-      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
-    fi
-    if [ -z "$passwd_home" ]; then
-      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
-      if [ -n "$dscl" ]; then
-        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
-      fi
-    fi
-    if [ -z "$passwd_home" ]; then
-      echo "could not resolve the passwd home; not running the command" >&2
-      exit 127
-    fi
-    HOME=$passwd_home
-    export HOME
-    COMPOSER_HOME=$HOME/.composer
-    export COMPOSER_HOME
-    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
-    "$git" fetch origin "shift-build-$1"
-    "$git" diff "$("$git" merge-base HEAD "origin/shift-build-$1")...origin/shift-build-$1"
-' _ "$ARGUMENTS"
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= fetch origin shift-build-$ARGUMENTS
+git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-build-$ARGUMENTS
 ```
 
 
@@ -273,7 +257,7 @@ If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 
 Before checking out the PR branch, verify the working directory is clean:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -308,36 +292,86 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  bash --noprofile --norc -c '
-    uid=$(id -u)
-    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
-    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
-      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
-    fi
-    if [ -z "$passwd_home" ]; then
-      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
-      if [ -n "$dscl" ]; then
-        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
-      fi
-    fi
-    if [ -z "$passwd_home" ]; then
-      echo "could not resolve the passwd home; not running the command" >&2
-      exit 127
-    fi
-    HOME=$passwd_home
-    export HOME
-    COMPOSER_HOME=$HOME/.composer
-    export COMPOSER_HOME
-    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
-    "$gh" pr checkout {PR_NUMBER} --repo "$("$git" remote get-url origin)"
-'
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_gh=$(PATH="$shift_path" command -v gh) || { echo 'gh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_mktemp=$(PATH="$shift_path" command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_chmod=$(PATH="$shift_path" command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_rm=$(PATH="$shift_path" command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_bin=$(TMPDIR=/tmp "$shift_mktemp" -d) || { echo 'mktemp failed; not contacting the remote.' >&2; exit 127; }
+case "$shift_bin" in
+  /*) ;;
+  *) echo 'temp directory is not absolute; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *:*) echo 'temp directory is not a single PATH entry; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *$'\n'*) echo 'temp directory contains a newline; not contacting the remote.' >&2; exit 127 ;;
+esac
+shift_pwd=$(pwd -P)
+if [[ "$shift_bin" = "$shift_pwd" || "$shift_bin" = "$shift_pwd"/* ]]; then
+  echo 'temp directory is inside the workspace; not contacting the remote.' >&2
+  exit 127
+fi
+trap '"$shift_rm" -rf "$shift_bin"' EXIT
+shift_cat=$(PATH="$shift_path" command -v cat) || { echo 'cat not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_cat" > "$shift_bin/git" << EOF
+#!/bin/sh
+git=$(printf '%q' "$shift_git")
+prev=
+subcmd=
+for arg in "\$@"; do
+  if [ "\$prev" = "-c" ] || [ "\$prev" = "-C" ]; then
+    prev=
+    continue
+  fi
+  case "\$arg" in
+    -c|-C) prev=\$arg ;;
+    -*) ;;
+    *) subcmd=\$arg; break ;;
+  esac
+done
+if [ -n "\$subcmd" ]; then
+  exec "\$git" -c "alias.\${subcmd}=" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+fi
+exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+EOF
+"$shift_chmod" +x "$shift_bin/git"
+shift_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+if [ -z "$shift_home" ] && [ -r /etc/passwd ]; then
+  shift_home=$(awk -F: -v uid="$(id -u)" '$3==uid {print $6; exit}' /etc/passwd)
+fi
+if [ -z "$shift_home" ]; then
+  shift_dscl=$(PATH="$shift_path" command -v dscl 2>/dev/null) || shift_dscl=
+  if [ -n "$shift_dscl" ]; then
+    shift_home=$("$shift_dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  fi
+fi
+if [ -z "$shift_home" ]; then
+  echo 'could not resolve the passwd home; not contacting the remote.' >&2
+  exit 127
+fi
+shift_gh_auth=()
+[ -n "${GH_TOKEN-}" ] && shift_gh_auth+=(GH_TOKEN="$GH_TOKEN")
+[ -n "${GITHUB_TOKEN-}" ] && shift_gh_auth+=(GITHUB_TOKEN="$GITHUB_TOKEN")
+[ -n "${GH_ENTERPRISE_TOKEN-}" ] && shift_gh_auth+=(GH_ENTERPRISE_TOKEN="$GH_ENTERPRISE_TOKEN")
+[ -n "${GH_CONFIG_DIR-}" ] && shift_gh_auth+=(GH_CONFIG_DIR="$GH_CONFIG_DIR")
+"$shift_env" -i \
+  PATH="$shift_bin:$shift_path" \
+  HOME="$shift_home" \
+  "${shift_gh_auth[@]}" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_gh" pr checkout {PR_NUMBER} --repo "$("$shift_git" remote get-url origin)"
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -379,7 +413,7 @@ First, check whether `composer.json` was changed as part of this PR:
 
 **GitHub:**
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -409,7 +443,7 @@ First, check whether `composer.json` was changed as part of this PR:
 
 **GitLab and Bitbucket:**
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -443,7 +477,7 @@ If `composer.json` was **not** changed, skip the rest of this step entirely and 
 If `composer.json` **was** changed, scan it for any `dev-*` version constraints (e.g. `"dev-main"`, `"dev-master"`, `"dev-fix-something"`). For each one found:
 1. Look up the package on Packagist to check if a stable release exists:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -464,8 +498,8 @@ If `composer.json` **was** changed, scan it for any `dev-*` version constraints 
        export HOME
        COMPOSER_HOME=$HOME/.composer
        export COMPOSER_HOME
-       composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
-       COMPOSER=composer.json "$composer" show {package} --all --no-plugins --no-scripts
+       command -v composer >/dev/null || { echo "composer not found on the fixed PATH" >&2; exit 127; }
+       COMPOSER=composer.json composer show {package} --all --no-plugins --no-scripts
    '
 ```
 2. If a compatible stable version is available, update the constraint in `composer.json` to the appropriate semver range (e.g. `^1.2`) and track it as a swapped dependency for the summary in Step 10
@@ -473,7 +507,7 @@ If `composer.json` **was** changed, scan it for any `dev-*` version constraints 
 
 Then run:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -494,8 +528,8 @@ Then run:
     export HOME
     COMPOSER_HOME=$HOME/.composer
     export COMPOSER_HOME
-    composer=$(PATH="$PATH" command -v composer) || { echo "composer not found on the fixed PATH" >&2; exit 127; }
-    COMPOSER=composer.json "$composer" update --no-plugins --no-scripts
+    command -v composer >/dev/null || { echo "composer not found on the fixed PATH" >&2; exit 127; }
+    COMPOSER=composer.json composer update --no-plugins --no-scripts
 '
 ```
 
@@ -544,7 +578,7 @@ For any changes marked as "optional" in the PR:
 After making changes:
 1. Verify tests pass:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -591,7 +625,7 @@ End with: "Would you like to merge this PR?"
 If the user confirms they want to merge:
 1. Check for any uncommitted local changes:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -624,7 +658,7 @@ If the user confirms they want to merge:
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -651,7 +685,7 @@ If the user confirms they want to merge:
 ```
 4. If there are unpushed commits, first confirm `git branch --show-current` still prints the Shift branch checked out in Step 4, and stop if it does not. Only then push that branch:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -678,7 +712,12 @@ If the user confirms they want to merge:
          {BRANCH}) ;;
          *) echo "HEAD is not the Shift branch; not pushing" >&2; exit 1 ;;
        esac
-       "$git" -c remote.origin.mirror=false -c push.followTags=false push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
+       ssh=$(PATH="$PATH" command -v ssh) || { echo "ssh not found on the fixed PATH" >&2; exit 127; }
+       GIT_SSH_COMMAND="$(printf '%q' "$ssh") -F /dev/null -o BatchMode=yes"
+       export GIT_SSH_COMMAND
+       export GIT_ALLOW_PROTOCOL=ssh:https:http
+       export SSH_ASKPASS_REQUIRE=never
+       "$git" -c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor= -c remote.origin.mirror=false -c push.followTags=false push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
    '
 ```
    Run the push exactly as written. The command itself refuses to push unless the current branch is `{BRANCH}`. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
@@ -686,63 +725,109 @@ If the user confirms they want to merge:
 
 **GitHub** — `--match-head-commit` makes the merge fail if the pull request's head is not the commit you reviewed, tested, and pushed:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  bash --noprofile --norc -c '
-    uid=$(id -u)
-    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
-    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
-      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
-    fi
-    if [ -z "$passwd_home" ]; then
-      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
-      if [ -n "$dscl" ]; then
-        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
-      fi
-    fi
-    if [ -z "$passwd_home" ]; then
-      echo "could not resolve the passwd home; not running the command" >&2
-      exit 127
-    fi
-    HOME=$passwd_home
-    export HOME
-    COMPOSER_HOME=$HOME/.composer
-    export COMPOSER_HOME
-    gh=$(PATH="$PATH" command -v gh) || { echo "gh not found on the fixed PATH" >&2; exit 127; }
-    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
-    head=$("$git" rev-parse HEAD)
-    "$gh" pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$head" --repo "$("$git" remote get-url origin)"
-'
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_gh=$(PATH="$shift_path" command -v gh) || { echo 'gh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_mktemp=$(PATH="$shift_path" command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_chmod=$(PATH="$shift_path" command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_rm=$(PATH="$shift_path" command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_bin=$(TMPDIR=/tmp "$shift_mktemp" -d) || { echo 'mktemp failed; not contacting the remote.' >&2; exit 127; }
+case "$shift_bin" in
+  /*) ;;
+  *) echo 'temp directory is not absolute; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *:*) echo 'temp directory is not a single PATH entry; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *$'\n'*) echo 'temp directory contains a newline; not contacting the remote.' >&2; exit 127 ;;
+esac
+shift_pwd=$(pwd -P)
+if [[ "$shift_bin" = "$shift_pwd" || "$shift_bin" = "$shift_pwd"/* ]]; then
+  echo 'temp directory is inside the workspace; not contacting the remote.' >&2
+  exit 127
+fi
+trap '"$shift_rm" -rf "$shift_bin"' EXIT
+shift_cat=$(PATH="$shift_path" command -v cat) || { echo 'cat not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_cat" > "$shift_bin/git" << EOF
+#!/bin/sh
+git=$(printf '%q' "$shift_git")
+prev=
+subcmd=
+for arg in "\$@"; do
+  if [ "\$prev" = "-c" ] || [ "\$prev" = "-C" ]; then
+    prev=
+    continue
+  fi
+  case "\$arg" in
+    -c|-C) prev=\$arg ;;
+    -*) ;;
+    *) subcmd=\$arg; break ;;
+  esac
+done
+if [ -n "\$subcmd" ]; then
+  exec "\$git" -c "alias.\${subcmd}=" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+fi
+exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+EOF
+"$shift_chmod" +x "$shift_bin/git"
+head=$("$shift_git" rev-parse HEAD)
+shift_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+if [ -z "$shift_home" ] && [ -r /etc/passwd ]; then
+  shift_home=$(awk -F: -v uid="$(id -u)" '$3==uid {print $6; exit}' /etc/passwd)
+fi
+if [ -z "$shift_home" ]; then
+  shift_dscl=$(PATH="$shift_path" command -v dscl 2>/dev/null) || shift_dscl=
+  if [ -n "$shift_dscl" ]; then
+    shift_home=$("$shift_dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  fi
+fi
+if [ -z "$shift_home" ]; then
+  echo 'could not resolve the passwd home; not contacting the remote.' >&2
+  exit 127
+fi
+shift_gh_auth=()
+[ -n "${GH_TOKEN-}" ] && shift_gh_auth+=(GH_TOKEN="$GH_TOKEN")
+[ -n "${GITHUB_TOKEN-}" ] && shift_gh_auth+=(GITHUB_TOKEN="$GITHUB_TOKEN")
+[ -n "${GH_ENTERPRISE_TOKEN-}" ] && shift_gh_auth+=(GH_ENTERPRISE_TOKEN="$GH_ENTERPRISE_TOKEN")
+[ -n "${GH_CONFIG_DIR-}" ] && shift_gh_auth+=(GH_CONFIG_DIR="$GH_CONFIG_DIR")
+"$shift_env" -i \
+  PATH="$shift_bin:$shift_path" \
+  HOME="$shift_home" \
+  "${shift_gh_auth[@]}" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_gh" pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$head" --repo "$("$shift_git" remote get-url origin)"
 ```
 
-If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch, still inside the clean environment:
+If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch. `git pull` contacts the remote, so it uses the same pinned ssh:
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
-  bash --noprofile --norc -c '
-    uid=$(id -u)
-    passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
-    if [ -z "$passwd_home" ] && [ -r /etc/passwd ]; then
-      passwd_home=$(awk -F: -v uid="$uid" "\$3==uid {print \$6; exit}" /etc/passwd)
-    fi
-    if [ -z "$passwd_home" ]; then
-      dscl=$(PATH="$PATH" command -v dscl 2>/dev/null) || dscl=
-      if [ -n "$dscl" ]; then
-        passwd_home=$("$dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk "{print \$2}")
-      fi
-    fi
-    if [ -z "$passwd_home" ]; then
-      echo "could not resolve the passwd home; not running the command" >&2
-      exit 127
-    fi
-    HOME=$passwd_home
-    export HOME
-    COMPOSER_HOME=$HOME/.composer
-    export COMPOSER_HOME
-    git=$(PATH="$PATH" command -v git) || { echo "git not found on the fixed PATH" >&2; exit 127; }
-    "$git" checkout {BASE_BRANCH}
-    "$git" pull --ff-only
-    "$git" branch -d {BRANCH}
-'
-```
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= checkout {BASE_BRANCH}
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= pull --ff-only
+"$shift_git" branch -d {BRANCH}
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
 > "Please merge the pull request on {platform} and delete the source branch."

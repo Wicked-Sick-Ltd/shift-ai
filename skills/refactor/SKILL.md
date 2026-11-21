@@ -65,7 +65,7 @@ Run **every** tool for this skill, including commands you write yourself (commit
 Claude Code starts the Bash tool before this snippet runs, so a project `BASH_ENV` file and linker variables are already applied to that outer shell. This skill cannot clear them there. `/usr/bin/env -i` is what starts the tool without those variables.
 
 ```bash
-/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
   bash --noprofile --norc -c '
     uid=$(id -u)
     passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -119,7 +119,7 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 4. Determine the remote and current branch by running:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -153,7 +153,7 @@ Each Bash call starts from the project environment again, so every call repeats 
 
 5. Check for uncommitted changes by running:
    ```bash
-   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
+   /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}" \
      bash --noprofile --norc -c '
        uid=$(id -u)
        passwd_home=$(getent passwd "$uid" 2>/dev/null | cut -d: -f6)
@@ -182,35 +182,60 @@ Each Bash call starts from the project environment again, so every call repeats 
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), and commit, running git through the clean `/usr/bin/env -i` command above. Then push only the current branch with the review skill's merge-step push command, also inside that clean command: it reads the branch's full ref from `git symbolic-ref --quiet HEAD` into a shell variable, pushes only `"HEAD:$ref"` to `origin`, and passes `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec: project settings can make that mirror the clone onto the remote.
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), and commit, running git through the clean `/usr/bin/env -i` command above. Then push only the current branch with this command. It runs `env` from the fixed PATH with `-i`, passes only the ssh command and protocol allow-list, clears credential helpers, askpass, fetch/push/checkout aliases, and `core.fsmonitor`, reads the branch's full ref from `git symbolic-ref --quiet HEAD`, and pushes only `"HEAD:$ref"` with `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec:
+   ```bash
+   shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+   shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   ref=$("$shift_git" symbolic-ref --quiet HEAD) || { echo 'HEAD is not a branch; not pushing.' >&2; exit 1; }
+   "$shift_env" -i \
+     PATH="$shift_path" \
+     GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+     GIT_ALLOW_PROTOCOL=ssh:https:http \
+     SSH_ASKPASS_REQUIRE=never \
+     "$shift_git" \
+     -c credential.helper= -c core.askPass= \
+     -c alias.fetch= -c alias.push= -c alias.checkout= \
+     -c core.fsmonitor= \
+     -c remote.origin.mirror=false -c push.followTags=false \
+     push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
+   ```
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
-7. Run the task via the API, capturing both the HTTP status code and response body:
+7. Run the task via the API, capturing both the HTTP status code and response body. Run this command exactly as written, only filling in the placeholders. It starts `curl` by an absolute path (Linux, macOS, or Git for Windows under `/mingw64/bin`) with an empty environment and without `.curlrc`, disables proxies, allows only HTTPS, and pins the operating system CA bundle, including the Git Bash bundles under `/usr/ssl` and `/mingw64`. `env` settings from a project cannot route the request elsewhere or substitute a certificate authority. The token is passed on stdin rather than on the command line. If no CA bundle or curl is found, the command exits non-zero and deletes `/tmp/shift_response.json`:
    ```bash
    shift_ca=''
    for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem /usr/ssl/certs/ca-bundle.crt /mingw64/ssl/certs/ca-bundle.crt /mingw64/etc/ssl/certs/ca-bundle.crt; do
      if [ -f "$f" ]; then shift_ca=$f; break; fi
    done
-   if [ -z "$shift_ca" ]; then
-     echo 'No system CA bundle found; not sending the Shift API token.' >&2
-   else
-     printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin \
-       bash --noprofile --norc -c '
-         curl=$(PATH="$PATH" command -v curl) || { echo "curl not found on the fixed PATH" >&2; exit 127; }
-         "$curl" -q -s --proto "=https" --noproxy "*" --cacert "$1" \
-           -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-           -H "Accept: application/json" \
-           -d @- \
-           -d "scs={platform}:owner/repo:branch" \
-           -d "task={task-slug}" \
-           https://laravelshift.com/api/build
-       ' _ "$shift_ca"
+   shift_curl=
+   for c in /usr/bin/curl /bin/curl /usr/local/bin/curl /mingw64/bin/curl /mingw64/bin/curl.exe; do
+     if [ -x "$c" ]; then shift_curl=$c; break; fi
+   done
+   rm -f /tmp/shift_response.json
+   if [ -z "$shift_ca" ] || [ -z "$shift_curl" ]; then
+     echo 'No system CA bundle or curl found; not sending the Shift API token.' >&2
+     exit 1
+   fi
+   printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin \
+     bash --noprofile --norc -c 'exec "$@"' _ "$shift_curl" -q -s --noproxy '*' --proto '=https' --cacert "$shift_ca" \
+     -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+     -H 'Accept: application/json' \
+     -d @- \
+     -d "scs={platform}:owner/repo:branch" \
+     -d "task={task-slug}" \
+     https://laravelshift.com/api/build
+   shift_curl_status=$?
+   if [ "$shift_curl_status" -ne 0 ]; then
+     rm -f /tmp/shift_response.json
+     exit "$shift_curl_status"
    fi
    ```
-   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. Resolve `curl` with `command -v` on that fixed PATH. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
+   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. The absolute `curl` binary runs inside that `env -i` bash, started with `--noprofile --norc`. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
 
-8. Handle the response based on the HTTP status code:
+8. Handle the response based on the HTTP status code. If step 7 exits non-zero, or prints no status, stop and tell the user the request was not sent. Do not read `/tmp/shift_response.json` in that case; step 7 removes it when it cannot send, so a body left by an earlier run is not this request's result.
 
    - **202** — Success. Parse the response body and extract `build_number`. Display this message exactly:
 
@@ -220,7 +245,7 @@ Each Bash call starts from the project environment again, so every call repeats 
 
    - **400** — Bad code. Tell the user the slug was not recognised by Shift and to double-check the value.
 
-   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token.
+   - **401** — Invalid token. Tell the user their API token was rejected. Prompt them to re-enter it, then save the new value to `.claude/settings.local.json` under `env.SHIFT_API_TOKEN` (merging into any existing file). Retry the request once with the new token, using the same command from step 7.
 
    - **403** — Not authorised. Tell the user their account does not have access to this task (it may require a premium plan at laravelshift.com).
 
