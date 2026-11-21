@@ -32,24 +32,26 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 
 **GitHub only**: Check that `gh` is installed (`gh --version`). If not, tell the user to install it from https://cli.github.com and stop.
 
+**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Pass `--repo` from `git remote get-url origin`, using `git` resolved on the fixed PATH when the command already resolves it. Commands that are not inside `env -i` are prefixed with `env -u GH_REPO -u GH_HOST`; `env -i` does not pass those variables. Never drop `--repo` or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
+
 ## Step 2: Find the PR and Fetch Details
 
 **GitHub:**
 ```bash
-gh pr list --head "shift-$ARGUMENTS" --json number,title,body,url
+env -u GH_REPO -u GH_HOST gh pr list --head "shift-$ARGUMENTS" --json number,title,body,url,headRefName,baseRefName --repo "$(git remote get-url origin)"
 ```
 
 If no PR is found, try the fallback branch name:
 ```bash
-gh pr list --head "shift-build-$ARGUMENTS" --json number,title,body,url
+env -u GH_REPO -u GH_HOST gh pr list --head "shift-build-$ARGUMENTS" --json number,title,body,url,headRefName,baseRefName --repo "$(git remote get-url origin)"
 ```
 
-If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number for subsequent steps.
+If still no PR is found, tell the user and stop. If multiple PRs are found, show the list and ask which one to use. Store the PR number, its head branch (`headRefName`) and its base branch (`baseRefName`) for subsequent steps.
 
 Then fetch the description, comments, and diff:
 ```bash
-gh pr view {PR_NUMBER} --comments
-gh pr diff {PR_NUMBER}
+env -u GH_REPO -u GH_HOST gh pr view {PR_NUMBER} --comments --repo "$(git remote get-url origin)"
+env -u GH_REPO -u GH_HOST gh pr diff {PR_NUMBER} --repo "$(git remote get-url origin)"
 ```
 
 **GitLab and Bitbucket:**
@@ -160,7 +162,7 @@ EOF
   GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
   GIT_ALLOW_PROTOCOL=ssh:https:http \
   SSH_ASKPASS_REQUIRE=never \
-  "$shift_gh" pr checkout {PR_NUMBER}
+  "$shift_gh" pr checkout {PR_NUMBER} --repo "$("$shift_git" remote get-url origin)"
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
@@ -184,7 +186,7 @@ First, check whether `composer.json` was changed as part of this PR:
 
 **GitHub:**
 ```bash
-gh pr diff {PR_NUMBER} --name-only | grep -q "^composer\.json$"
+env -u GH_REPO -u GH_HOST gh pr diff {PR_NUMBER} --name-only --repo "$(git remote get-url origin)" | grep -q "^composer\.json$"
 ```
 
 **GitLab and Bitbucket:**
@@ -194,12 +196,16 @@ git diff $(git merge-base HEAD origin/{SHIFT_BRANCH})...origin/{SHIFT_BRANCH} --
 
 If `composer.json` was **not** changed, skip the rest of this step entirely and proceed to Step 7.
 
+**Every Composer command in this skill must be run from the repository root, exactly as written: prefixed with `COMPOSER=composer.json` and with `--no-plugins --no-scripts`.** Do this on the same command line every time, including re-runs. The `COMPOSER` environment variable may be inherited from the project's settings and would make Composer read a different manifest than the `composer.json` you reviewed; the flags stop the manifest's scripts and plugins from executing. Never drop the prefix or the flags, and never set or unset `COMPOSER` in a separate command.
+
 If `composer.json` **was** changed, scan it for any `dev-*` version constraints (e.g. `"dev-main"`, `"dev-master"`, `"dev-fix-something"`). For each one found:
-1. Look up the package on Packagist to check if a stable release exists: `composer show {package} --all`
+1. Look up the package on Packagist to check if a stable release exists: `COMPOSER=composer.json composer show {package} --all --no-plugins --no-scripts`
 2. If a compatible stable version is available, update the constraint in `composer.json` to the appropriate semver range (e.g. `^1.2`) and track it as a swapped dependency for the summary in Step 10
 3. If no stable release exists, leave the `dev-*` constraint as-is
 
-Then run `composer update`.
+Then run `COMPOSER=composer.json composer update --no-plugins --no-scripts`.
+
+Because scripts are skipped, if the project has an `artisan` file, run `php artisan package:discover --ansi` after a successful update to refresh Laravel's package manifest.
 
 After running (whether it succeeds or fails):
 
@@ -217,8 +223,8 @@ When collecting these suggestions:
 
 If `composer update` failed, attempt to systematically resolve the incompatibilities before stopping:
 1. Read the error output carefully to identify which packages have conflicting version constraints
-2. For each conflicting package, check the latest compatible version: `composer show {package} --all` or look up the package on packagist.org
-3. Update the version constraint in `composer.json` to one that satisfies all dependencies, then re-run `composer update`
+2. For each conflicting package, check the latest compatible version: `COMPOSER=composer.json composer show {package} --all --no-plugins --no-scripts` or look up the package on packagist.org
+3. Update the version constraint in `composer.json` to one that satisfies all dependencies, then re-run `COMPOSER=composer.json composer update --no-plugins --no-scripts`
 4. Repeat for any remaining conflicts
 5. If a conflict involves a package that has a suggested follow-up Shift (from comments above), surface that to the user as the recommended resolution instead of manually editing constraints
 6. If you cannot resolve the incompatibilities after a systematic attempt, stop and explain exactly which packages are conflicting and why, so the user can decide how to proceed
@@ -271,12 +277,13 @@ If the user confirms they want to merge:
      If the user agrees, stage all changes and commit using "Finalize upgrade" as the subject and the summary from Step 10 as the commit body.
      If the user declines, wait for them to confirm they've committed their changes before proceeding.
 3. Once the working directory is clean, check if the branch has unpushed commits: `git log origin/{BRANCH}..HEAD`
-4. If there are unpushed commits, push them:
+4. If there are unpushed commits, confirm `git branch --show-current` still prints the Shift branch checked out in Step 4 (stop if it does not), then push only that branch:
    ```bash
    shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
    shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   ref=$("$shift_git" symbolic-ref --quiet HEAD) || { echo 'HEAD is not a branch; not pushing.' >&2; exit 1; }
    "$shift_env" -i \
      PATH="$shift_path" \
      GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
@@ -285,11 +292,14 @@ If the user confirms they want to merge:
      "$shift_git" \
      -c credential.helper= -c core.askPass= \
      -c alias.fetch= -c alias.push= -c alias.checkout= \
-     -c core.fsmonitor= push
+     -c core.fsmonitor= \
+     -c remote.origin.mirror=false -c push.followTags=false \
+     push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
    ```
+   Run it exactly as written. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
 5. Merge using the appropriate method for the platform:
 
-**GitHub:**
+**GitHub** — `--match-head-commit` makes the merge fail if the pull request's head is not the commit you reviewed, tested, and pushed:
 ```bash
 shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
 shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
@@ -339,12 +349,40 @@ fi
 exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
 EOF
 "$shift_chmod" +x "$shift_bin/git"
+head=$("$shift_git" rev-parse HEAD)
 "$shift_env" -i \
   PATH="$shift_bin:$shift_path" \
   GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
   GIT_ALLOW_PROTOCOL=ssh:https:http \
   SSH_ASKPASS_REQUIRE=never \
-  "$shift_gh" pr merge {PR_NUMBER} --merge --delete-branch
+  "$shift_gh" pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$head" --repo "$("$shift_git" remote get-url origin)"
+```
+
+If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch. `git pull` contacts the remote, so it uses the same pinned ssh:
+```bash
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= checkout {BASE_BRANCH}
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= pull --ff-only
+"$shift_git" branch -d {BRANCH}
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:

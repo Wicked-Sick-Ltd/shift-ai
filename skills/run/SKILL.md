@@ -96,12 +96,13 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
    > You have uncommitted changes. Would you like to commit and push them before running Shift, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding. Push with exactly this command, in one shell call. It runs the `env` from the fixed PATH with `-i`, passes only the ssh command, protocol allow-list, and git exec path, and clears credential helpers, askpass, fetch/push/checkout aliases, and `core.fsmonitor`:
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), and commit. Then push only the current branch with the review skill's merge-step push, in one shell call. It runs the `env` from the fixed PATH with `-i`, passes only the ssh command and protocol allow-list, clears credential helpers, askpass, fetch/push/checkout aliases, and `core.fsmonitor`, reads the branch's full ref from `git symbolic-ref --quiet HEAD`, and pushes only `"HEAD:$ref"` with `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec:
    ```bash
    shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
    shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   ref=$("$shift_git" symbolic-ref --quiet HEAD) || { echo 'HEAD is not a branch; not pushing.' >&2; exit 1; }
    "$shift_env" -i \
      PATH="$shift_path" \
      GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
@@ -110,7 +111,9 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
      "$shift_git" \
      -c credential.helper= -c core.askPass= \
      -c alias.fetch= -c alias.push= -c alias.checkout= \
-     -c core.fsmonitor= push -u origin HEAD
+     -c core.fsmonitor= \
+     -c remote.origin.mirror=false -c push.followTags=false \
+     push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
    ```
 
 5. If the current branch matches the default branch, warn the user and suggest they switch to a dedicated branch before running Shift — for example:
@@ -123,13 +126,24 @@ Run a Shift against this repository via the Shift API. The Shift code is: $ARGUM
 
 7. Run the Shift via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "code=$ARGUMENTS" \
-     -d "scs=github:owner/repo:branch" \
-     https://laravelshift.com/api/run
+   shift_ca=''
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem /usr/ssl/certs/ca-bundle.crt /mingw64/ssl/certs/ca-bundle.crt /mingw64/etc/ssl/certs/ca-bundle.crt; do
+     if [ -f "$f" ]; then shift_ca=$f; break; fi
+   done
+   if [ -z "$shift_ca" ]; then
+     echo 'No system CA bundle found; not sending the Shift API token.' >&2
+   else
+     printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin curl -q -s \
+       --proto '=https' --noproxy '*' --cacert "$shift_ca" \
+       -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+       -H 'Accept: application/json' \
+       -d @- \
+       -d "code=$ARGUMENTS" \
+       -d "scs=github:owner/repo:branch" \
+       https://laravelshift.com/api/run
+   fi
    ```
+   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
 
 8. Handle the response based on the HTTP status code:
 
