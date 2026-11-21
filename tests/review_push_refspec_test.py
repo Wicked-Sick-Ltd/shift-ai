@@ -84,8 +84,13 @@ def _skill_push_commands(path: Path) -> list[str]:
 
 
 def _is_git_push(body: str) -> bool:
-    """True when a shell snippet runs git push, not git log or git status."""
-    stripped = re.sub(r"'[^']*'|\"[^\"]*\"", " ", body)
+    """True when a shell snippet runs git push, not git log or git status.
+
+    Quoted words stay as single opaque tokens. Deleting them hid
+    ``git -c 'remote.origin.mirror=false' push`` and also hid a quoted
+    ``git -c 'color.ui=false' push`` from the other-skills guard.
+    """
+    stripped = re.sub(r"'[^']*'|\"[^\"]*\"", " QUOTED ", body)
     return re.search(r"\bgit\s+(?:-c\s+\S+\s+)*push\b", stripped) is not None
 
 
@@ -172,6 +177,14 @@ def _fixture(branch: str) -> tuple[Path, Path, Path]:
 
 
 class ReviewPushRefspecTest(unittest.TestCase):
+    def test_quoted_git_config_still_counts_as_push(self) -> None:
+        safe = "git -c 'remote.origin.mirror=false' push origin \"HEAD:refs/heads/${branch}\""
+        self.assertTrue(_is_git_push(safe))
+        self.assertTrue(_is_git_push("git -c 'color.ui=false' push"))
+        self.assertTrue(_is_git_push("git -c 'a=b' -c \"c=d\" push origin"))
+        self.assertFalse(_is_git_push("git -c 'color.ui=false' status"))
+        self.assertFalse(_is_git_push("git log -c 'color.ui=false'"))
+
     def test_review_skill_has_one_merge_push(self) -> None:
         commands = _skill_push_commands(REVIEW)
         self.assertEqual(
