@@ -12,6 +12,12 @@ Review and process the pull request created by Laravel Shift #$ARGUMENTS.
 
 **Never revert or undo any changes made by Shift in this PR.** Shift's changes are intentional and authoritative. If you believe a change made by Shift is incorrect or needs to be different, do NOT make any changes — instead, flag it to the user with your findings and let them decide how to proceed.
 
+## Important: Commands That Contact the Git Remote
+
+Every command in this skill that fetches, checks out the PR, pushes, or merges is written out in full below. Run it exactly as written, in one shell call. The project's `.claude/settings.json` is copied into each Bash call and can otherwise choose the program git runs instead of `ssh`, the askpass program git runs (`GIT_ASKPASS` or `core.askPass`; git does not consult `SSH_ASKPASS_REQUIRE`), or a `credential.helper` whose value starts with `!`.
+
+Each command resolves `env`, `ssh`, and `git` on `/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin` and starts that absolute `env` with `-i`. The child receives only `PATH`, `GIT_SSH_COMMAND` set to that `ssh` plus `-F /dev/null -o BatchMode=yes`, `GIT_ALLOW_PROTOCOL`, and `SSH_ASKPASS_REQUIRE`. `gh` also receives `HOME` from the passwd entry or Directory Services, and `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, and `GH_CONFIG_DIR` when they are already set, so it can authenticate. `GIT_EXEC_PATH` is left unset so git uses the libexec compiled into that binary. The child does not receive the outer shell's `HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, or linker variables. Direct `git` commands also pass `-c credential.helper= -c core.askPass= -c alias.fetch= -c alias.push= -c alias.checkout= -c core.fsmonitor=`. `gh pr checkout` and `gh pr merge` create the git shim with `TMPDIR=/tmp`, refuse the directory unless it is an absolute path outside the workspace with no colon or newline, and put only that directory first on `PATH`. Never drop any of that, split it across calls, or run another remote `git` or `gh` command without it.
+
 ## Step 1: Detect Platform
 
 Run:
@@ -26,7 +32,7 @@ Parse the URL to detect the platform and extract `owner/repo` (handle both SSH a
 
 **GitHub only**: Check that `gh` is installed (`gh --version`). If not, tell the user to install it from https://cli.github.com and stop.
 
-**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Run each one exactly as written: prefixed with `env -u GH_REPO -u GH_HOST` and passed `--repo "$(git remote get-url origin)"`. Never drop either part or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
+**GitHub only**: Every `gh` command in this skill must target the `origin` repository. Pass `--repo` from `git remote get-url origin`, using `git` resolved on the fixed PATH when the command already resolves it. Commands that are not inside `env -i` are prefixed with `env -u GH_REPO -u GH_HOST`; `env -i` does not pass those variables. Never drop `--repo` or substitute another repository. Project settings and the shell environment can set `GH_REPO` or `GH_HOST`, which would otherwise point `gh` at a different repository or host.
 
 ## Step 2: Find the PR and Fetch Details
 
@@ -52,13 +58,37 @@ env -u GH_REPO -u GH_HOST gh pr diff {PR_NUMBER} --repo "$(git remote get-url or
 
 The Shift branch is `shift-$ARGUMENTS`. Fetch it and generate the diff:
 ```bash
-git fetch origin shift-$ARGUMENTS
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= fetch origin shift-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-$ARGUMENTS)...origin/shift-$ARGUMENTS
 ```
 
 If that fetch fails, fall back to `shift-build-$ARGUMENTS`:
 ```bash
-git fetch origin shift-build-$ARGUMENTS
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= fetch origin shift-build-$ARGUMENTS
 git diff $(git merge-base HEAD origin/shift-build-$ARGUMENTS)...origin/shift-build-$ARGUMENTS
 ```
 
@@ -79,7 +109,81 @@ Do NOT stash, reset, or otherwise modify their working directory. Only proceed i
 
 **GitHub:**
 ```bash
-env -u GH_REPO -u GH_HOST gh pr checkout {PR_NUMBER} --repo "$(git remote get-url origin)"
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_gh=$(PATH="$shift_path" command -v gh) || { echo 'gh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_mktemp=$(PATH="$shift_path" command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_chmod=$(PATH="$shift_path" command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_rm=$(PATH="$shift_path" command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_bin=$(TMPDIR=/tmp "$shift_mktemp" -d) || { echo 'mktemp failed; not contacting the remote.' >&2; exit 127; }
+case "$shift_bin" in
+  /*) ;;
+  *) echo 'temp directory is not absolute; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *:*) echo 'temp directory is not a single PATH entry; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *$'\n'*) echo 'temp directory contains a newline; not contacting the remote.' >&2; exit 127 ;;
+esac
+shift_pwd=$(pwd -P)
+if [[ "$shift_bin" = "$shift_pwd" || "$shift_bin" = "$shift_pwd"/* ]]; then
+  echo 'temp directory is inside the workspace; not contacting the remote.' >&2
+  exit 127
+fi
+trap '"$shift_rm" -rf "$shift_bin"' EXIT
+shift_cat=$(PATH="$shift_path" command -v cat) || { echo 'cat not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_cat" > "$shift_bin/git" << EOF
+#!/bin/sh
+git=$(printf '%q' "$shift_git")
+prev=
+subcmd=
+for arg in "\$@"; do
+  if [ "\$prev" = "-c" ] || [ "\$prev" = "-C" ]; then
+    prev=
+    continue
+  fi
+  case "\$arg" in
+    -c|-C) prev=\$arg ;;
+    -*) ;;
+    *) subcmd=\$arg; break ;;
+  esac
+done
+if [ -n "\$subcmd" ]; then
+  exec "\$git" -c "alias.\${subcmd}=" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+fi
+exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+EOF
+"$shift_chmod" +x "$shift_bin/git"
+shift_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+if [ -z "$shift_home" ] && [ -r /etc/passwd ]; then
+  shift_home=$(awk -F: -v uid="$(id -u)" '$3==uid {print $6; exit}' /etc/passwd)
+fi
+if [ -z "$shift_home" ]; then
+  shift_dscl=$(PATH="$shift_path" command -v dscl 2>/dev/null) || shift_dscl=
+  if [ -n "$shift_dscl" ]; then
+    shift_home=$("$shift_dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  fi
+fi
+if [ -z "$shift_home" ]; then
+  echo 'could not resolve the passwd home; not contacting the remote.' >&2
+  exit 127
+fi
+shift_gh_auth=()
+[ -n "${GH_TOKEN-}" ] && shift_gh_auth+=(GH_TOKEN="$GH_TOKEN")
+[ -n "${GITHUB_TOKEN-}" ] && shift_gh_auth+=(GITHUB_TOKEN="$GITHUB_TOKEN")
+[ -n "${GH_ENTERPRISE_TOKEN-}" ] && shift_gh_auth+=(GH_ENTERPRISE_TOKEN="$GH_ENTERPRISE_TOKEN")
+[ -n "${GH_CONFIG_DIR-}" ] && shift_gh_auth+=(GH_CONFIG_DIR="$GH_CONFIG_DIR")
+"$shift_env" -i \
+  PATH="$shift_bin:$shift_path" \
+  HOME="$shift_home" \
+  "${shift_gh_auth[@]}" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_gh" pr checkout {PR_NUMBER} --repo "$("$shift_git" remote get-url origin)"
 ```
 
 **GitLab and Bitbucket** — use native git, checking out whichever branch name succeeded in Step 2:
@@ -196,21 +300,131 @@ If the user confirms they want to merge:
 3. Once the working directory is clean, check if the branch has unpushed commits: `git log origin/{BRANCH}..HEAD`
 4. If there are unpushed commits, confirm `git branch --show-current` still prints the Shift branch checked out in Step 4 (stop if it does not), then push only that branch:
    ```bash
-   ref=$(git symbolic-ref --quiet HEAD) && git -c remote.origin.mirror=false -c push.followTags=false push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
+   shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+   shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+   ref=$("$shift_git" symbolic-ref --quiet HEAD) || { echo 'HEAD is not a branch; not pushing.' >&2; exit 1; }
+   "$shift_env" -i \
+     PATH="$shift_path" \
+     GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+     GIT_ALLOW_PROTOCOL=ssh:https:http \
+     SSH_ASKPASS_REQUIRE=never \
+     "$shift_git" \
+     -c credential.helper= -c core.askPass= \
+     -c alias.fetch= -c alias.push= -c alias.checkout= \
+     -c core.fsmonitor= \
+     -c remote.origin.mirror=false -c push.followTags=false \
+     push --no-follow-tags --recurse-submodules=no origin "HEAD:$ref"
    ```
    Run it exactly as written. Never fall back to a push without an explicit remote and refspec: project settings can set `remote.origin.mirror` or `remote.origin.push` through `GIT_CONFIG_*` environment variables, which turns that into a forced update or deletion of other branches and tags.
 5. Merge using the appropriate method for the platform:
 
 **GitHub** — `--match-head-commit` makes the merge fail if the pull request's head is not the commit you reviewed, tested, and pushed:
 ```bash
-env -u GH_REPO -u GH_HOST gh pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$(git rev-parse HEAD)" --repo "$(git remote get-url origin)"
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_gh=$(PATH="$shift_path" command -v gh) || { echo 'gh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_mktemp=$(PATH="$shift_path" command -v mktemp) || { echo 'mktemp not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_chmod=$(PATH="$shift_path" command -v chmod) || { echo 'chmod not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_rm=$(PATH="$shift_path" command -v rm) || { echo 'rm not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_bin=$(TMPDIR=/tmp "$shift_mktemp" -d) || { echo 'mktemp failed; not contacting the remote.' >&2; exit 127; }
+case "$shift_bin" in
+  /*) ;;
+  *) echo 'temp directory is not absolute; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *:*) echo 'temp directory is not a single PATH entry; not contacting the remote.' >&2; exit 127 ;;
+esac
+case "$shift_bin" in
+  *$'\n'*) echo 'temp directory contains a newline; not contacting the remote.' >&2; exit 127 ;;
+esac
+shift_pwd=$(pwd -P)
+if [[ "$shift_bin" = "$shift_pwd" || "$shift_bin" = "$shift_pwd"/* ]]; then
+  echo 'temp directory is inside the workspace; not contacting the remote.' >&2
+  exit 127
+fi
+trap '"$shift_rm" -rf "$shift_bin"' EXIT
+shift_cat=$(PATH="$shift_path" command -v cat) || { echo 'cat not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_cat" > "$shift_bin/git" << EOF
+#!/bin/sh
+git=$(printf '%q' "$shift_git")
+prev=
+subcmd=
+for arg in "\$@"; do
+  if [ "\$prev" = "-c" ] || [ "\$prev" = "-C" ]; then
+    prev=
+    continue
+  fi
+  case "\$arg" in
+    -c|-C) prev=\$arg ;;
+    -*) ;;
+    *) subcmd=\$arg; break ;;
+  esac
+done
+if [ -n "\$subcmd" ]; then
+  exec "\$git" -c "alias.\${subcmd}=" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+fi
+exec "\$git" -c credential.helper= -c core.askPass= -c core.fsmonitor= "\$@"
+EOF
+"$shift_chmod" +x "$shift_bin/git"
+head=$("$shift_git" rev-parse HEAD)
+shift_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+if [ -z "$shift_home" ] && [ -r /etc/passwd ]; then
+  shift_home=$(awk -F: -v uid="$(id -u)" '$3==uid {print $6; exit}' /etc/passwd)
+fi
+if [ -z "$shift_home" ]; then
+  shift_dscl=$(PATH="$shift_path" command -v dscl 2>/dev/null) || shift_dscl=
+  if [ -n "$shift_dscl" ]; then
+    shift_home=$("$shift_dscl" . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  fi
+fi
+if [ -z "$shift_home" ]; then
+  echo 'could not resolve the passwd home; not contacting the remote.' >&2
+  exit 127
+fi
+shift_gh_auth=()
+[ -n "${GH_TOKEN-}" ] && shift_gh_auth+=(GH_TOKEN="$GH_TOKEN")
+[ -n "${GITHUB_TOKEN-}" ] && shift_gh_auth+=(GITHUB_TOKEN="$GITHUB_TOKEN")
+[ -n "${GH_ENTERPRISE_TOKEN-}" ] && shift_gh_auth+=(GH_ENTERPRISE_TOKEN="$GH_ENTERPRISE_TOKEN")
+[ -n "${GH_CONFIG_DIR-}" ] && shift_gh_auth+=(GH_CONFIG_DIR="$GH_CONFIG_DIR")
+"$shift_env" -i \
+  PATH="$shift_bin:$shift_path" \
+  HOME="$shift_home" \
+  "${shift_gh_auth[@]}" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_gh" pr merge {PR_NUMBER} --merge --delete-branch --match-head-commit "$head" --repo "$("$shift_git" remote get-url origin)"
 ```
 
-If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch:
+If the merge fails, report the error to the user and stop. Once it succeeds, `gh` has deleted the remote branch but, because `--repo` is set, leaves the local branch in place. Switch back to the base branch from Step 2 and delete the local Shift branch. `git pull` contacts the remote, so it uses the same pinned ssh:
 ```bash
-git checkout {BASE_BRANCH}
-git pull --ff-only
-git branch -d {BRANCH}
+shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
+shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= checkout {BASE_BRANCH}
+"$shift_env" -i \
+  PATH="$shift_path" \
+  GIT_SSH_COMMAND="$(printf '%q' "$shift_ssh") -F /dev/null -o BatchMode=yes" \
+  GIT_ALLOW_PROTOCOL=ssh:https:http \
+  SSH_ASKPASS_REQUIRE=never \
+  "$shift_git" \
+  -c credential.helper= -c core.askPass= \
+  -c alias.fetch= -c alias.push= -c alias.checkout= \
+  -c core.fsmonitor= pull --ff-only
+"$shift_git" branch -d {BRANCH}
 ```
 
 **GitLab and Bitbucket** — the branch has already been pushed. Tell the user:
