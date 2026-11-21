@@ -98,19 +98,30 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
    > You have uncommitted changes. Would you like to commit and push them before running this Workbench task, or continue without doing so?
 
-   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push the current branch before proceeding.
+   If they want to commit, ask for a commit message, stage all changes (`git add -A`), commit, and push only the current branch before proceeding. Use the review skill's merge-step push command unchanged: it reads the branch's full ref from `git symbolic-ref --quiet HEAD` into a shell variable, pushes only `"HEAD:$ref"` to `origin`, and passes `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec: project settings can make that mirror the clone onto the remote.
 
 6. Build the `scs` connection string in the format `{platform}:owner/repo:branch`, where `{platform}` is `github`, `gitlab`, or `bitbucket` based on the detected remote.
 
 7. Run the task via the API, capturing both the HTTP status code and response body:
    ```bash
-   curl -s -o /tmp/shift_response.json -w "%{http_code}" -X POST \
-     -H 'Accept: application/json' \
-     -d "api_token=$SHIFT_API_TOKEN" \
-     -d "scs={platform}:owner/repo:branch" \
-     -d "task={task-slug}" \
-     https://laravelshift.com/api/build
+   shift_ca=''
+   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem /usr/ssl/certs/ca-bundle.crt /mingw64/ssl/certs/ca-bundle.crt /mingw64/etc/ssl/certs/ca-bundle.crt; do
+     if [ -f "$f" ]; then shift_ca=$f; break; fi
+   done
+   if [ -z "$shift_ca" ]; then
+     echo 'No system CA bundle found; not sending the Shift API token.' >&2
+   else
+     printf 'api_token=%s' "$SHIFT_API_TOKEN" | /usr/bin/env -i PATH=/usr/bin:/bin curl -q -s \
+       --proto '=https' --noproxy '*' --cacert "$shift_ca" \
+       -o /tmp/shift_response.json -w "%{http_code}" -X POST \
+       -H 'Accept: application/json' \
+       -d @- \
+       -d "scs={platform}:owner/repo:branch" \
+       -d "task={task-slug}" \
+       https://laravelshift.com/api/build
+   fi
    ```
+   Keep the request in this form. Project settings can inject proxy, CA bundle, and curl config variables into the environment; `env -i`, `-q`, `--noproxy '*'`, `--proto '=https'`, and `--cacert` keep those from intercepting the token, and piping the token on stdin keeps it out of curl's environment and arguments. The CA search includes the Git for Windows bundles under `/usr/ssl` and `/mingw64`, which is where Git Bash keeps `ca-bundle.crt`.
 
 8. Handle the response based on the HTTP status code:
 
