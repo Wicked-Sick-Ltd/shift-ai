@@ -21,11 +21,25 @@ declare(strict_types=1);
  *
  * The script downloads Composer 2.11.2 (the release these assertions were
  * executed against) on first use and places it on PATH as `composer`.
+ *
+ * `composer show` starts with the scanned plugin already installed, so a
+ * show command that omits `--no-plugins` activates that plugin. A non-zero
+ * exit fails the case where COMPOSER is unset. Where COMPOSER points at the
+ * hidden manifest, a deliberate refusal is accepted and any other command
+ * failure is not. The process timeout is enforced in PHP, so the run does
+ * not depend on GNU timeout.
+ *
+ * Harness checks, without walking the skill file:
+ *   php tests/review_composer_manifest_test.php --self-test
  */
 
 const COMPOSER_VERSION = '2.11.2';
 const COMPOSER_SHA256 = 'dd158c0afd41d15fac89e1b4e47b5d42911fe316c3687cd5edac98319b25d028';
 const COMPOSER_URL = 'https://getcomposer.org/download/2.11.2/composer.phar';
+
+if (in_array('--self-test', $argv, true)) {
+    exit(runHarnessSelfTest());
+}
 
 $skillPath = $argv[1] ?? dirname(__DIR__) . '/skills/review/SKILL.md';
 if (!is_file($skillPath)) {
@@ -42,7 +56,7 @@ if ($skill === false) {
 $snippets = extractComposerSnippets($skill);
 $failures = [];
 
-$kinds = array_map('composerSnippetKind', $snippets);
+$kinds = coveredOperations($snippets);
 if (!in_array('show', $kinds, true)) {
     $failures[] = 'skills/review/SKILL.md no longer tells the agent to run composer show. That lookup is one of the operations that must stay, and must be pinned.';
 }
@@ -199,11 +213,39 @@ function composerSnippetKind(string $snippet): string
 }
 
 /**
+ * A fence that runs both operations is one snippet of kind show+update.
+ * The presence checks look for the individual operations, so that kind
+ * counts as both.
+ *
+ * @param list<string> $snippets
+ * @return list<string>
+ */
+function coveredOperations(array $snippets): array
+{
+    $kinds = [];
+    foreach ($snippets as $snippet) {
+        $kind = composerSnippetKind($snippet);
+        if ($kind === 'show+update') {
+            $kinds[] = 'show';
+            $kinds[] = 'update';
+            continue;
+        }
+        $kinds[] = $kind;
+    }
+
+    return $kinds;
+}
+
+/**
  * @return array{dir: string, exit: int, stdout: string, stderr: string}
  */
 function runSnippet(string $snippet, bool $applySettings): array
 {
     $dir = fixtureProject();
+    $kind = composerSnippetKind($snippet);
+    if ($kind === 'show' || $kind === 'show+update') {
+        seedInstalledPlugin($dir);
+    }
     $snippet = str_replace(
         ['{package}', '{PACKAGE}', '<package>'],
         ['acme/devdep', 'acme/devdep', 'acme/devdep'],
@@ -213,15 +255,7 @@ function runSnippet(string $snippet, bool $applySettings): array
     $home = $dir . '/.test-home';
     mkdir($home . '/composer-home', 0777, true);
 
-    $env = [
-        'PATH' => composerBinDir() . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
-        'HOME' => $home,
-        'COMPOSER_HOME' => $home . '/composer-home',
-        'COMPOSER_CACHE_DIR' => $home . '/composer-cache',
-        'COMPOSER_DISABLE_NETWORK' => '1',
-        'COMPOSER_NO_INTERACTION' => '1',
-        'LANG' => 'C.UTF-8',
-    ];
+    $env = composerProcessEnv($home);
 
     if ($applySettings) {
         $settings = json_decode((string) file_get_contents($dir . '/.claude/settings.json'), true);
@@ -233,33 +267,13 @@ function runSnippet(string $snippet, bool $applySettings): array
         }
     }
 
-    $descriptors = [
-        0 => ['file', '/dev/null', 'r'],
-        1 => ['pipe', 'w'],
-        2 => ['pipe', 'w'],
-    ];
-    $process = proc_open(
-        ['timeout', '90', 'bash', '-c', $snippet],
-        $descriptors,
-        $pipes,
-        $dir,
-        $env
-    );
-    if (!is_resource($process)) {
-        throw new RuntimeException('Could not start bash for the skill snippet');
-    }
-
-    $stdout = stream_get_contents($pipes[1]);
-    $stderr = stream_get_contents($pipes[2]);
-    fclose($pipes[1]);
-    fclose($pipes[2]);
-    $exit = proc_close($process);
+    $result = runProcess(['bash', '-c', $snippet], $dir, $env, 90);
 
     return [
         'dir' => $dir,
-        'exit' => $exit,
-        'stdout' => is_string($stdout) ? $stdout : '',
-        'stderr' => is_string($stderr) ? $stderr : '',
+        'exit' => $result['exit'],
+        'stdout' => $result['stdout'],
+        'stderr' => $result['stderr'],
     ];
 }
 
@@ -296,6 +310,14 @@ function assertSnippet(string $snippet, string $scenario, array $case): array
 
     if (str_contains($output, 'acme/hidden') || str_contains($output, '9.9.9')) {
         $failures[] = 'command output shows Composer loaded the hidden manifest';
+    }
+
+    if ($scenario === 'no-composer-env' && $case['exit'] !== 0) {
+        $failures[] = 'command must succeed when COMPOSER is unset (exit ' . $case['exit'] . ')';
+    }
+
+    if ($scenario === 'settings-env' && $case['exit'] !== 0 && commandFailedUnrelatedToManifestRefusal($case)) {
+        $failures[] = 'command failed for a reason other than refusing the hidden manifest (exit ' . $case['exit'] . ')';
     }
 
     if ($case['exit'] === 0 && ($kind === 'show' || $kind === 'show+update')) {
@@ -568,6 +590,270 @@ function composerBinDir(): string
     }
 
     return $dir;
+}
+
+/**
+ * @return array<string, string>
+ */
+function composerProcessEnv(string $home): array
+{
+    return [
+        'PATH' => composerBinDir() . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
+        'HOME' => $home,
+        'COMPOSER_HOME' => $home . '/composer-home',
+        'COMPOSER_CACHE_DIR' => $home . '/composer-cache',
+        'COMPOSER_DISABLE_NETWORK' => '1',
+        'COMPOSER_NO_INTERACTION' => '1',
+        'LANG' => 'C.UTF-8',
+    ];
+}
+
+/**
+ * Install the scanned manifest's plugin into vendor without running it,
+ * then remove the lockfile and any markers the seed created. show is
+ * exercised against that installed plugin.
+ */
+function seedInstalledPlugin(string $dir): void
+{
+    $home = sys_get_temp_dir() . '/review-composer-seed-home-' . bin2hex(random_bytes(4));
+    mkdir($home . '/composer-home', 0777, true);
+    try {
+        $result = runProcess(
+            [composerBinDir() . '/composer', 'update', '--no-plugins', '--no-scripts', '--no-interaction', '--no-progress'],
+            $dir,
+            composerProcessEnv($home),
+            90
+        );
+    } finally {
+        removeTree($home);
+    }
+
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('Could not seed installed plugins: ' . trim($result['stdout'] . "\n" . $result['stderr']));
+    }
+
+    $installed = $dir . '/vendor/composer/installed.json';
+    $installedText = is_file($installed) ? (string) file_get_contents($installed) : '';
+    if (!str_contains($installedText, 'acme/scanned-plugin')) {
+        throw new RuntimeException('Seeded install did not include acme/scanned-plugin');
+    }
+
+    if (is_file($dir . '/composer.lock')) {
+        unlink($dir . '/composer.lock');
+    }
+    foreach (markerPaths() as $marker) {
+        $path = $dir . '/' . $marker;
+        if (file_exists($path)) {
+            unlink($path);
+        }
+    }
+}
+
+/**
+ * Run a process and stop it after $timeoutSeconds. The limit is applied
+ * here so the test does not require GNU timeout.
+ *
+ * @param list<string> $command
+ * @param array<string, string> $env
+ * @return array{exit: int, stdout: string, stderr: string}
+ */
+function runProcess(array $command, string $cwd, array $env, int $timeoutSeconds): array
+{
+    $descriptors = [
+        0 => ['file', '/dev/null', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptors, $pipes, $cwd, $env);
+    if (!is_resource($process)) {
+        throw new RuntimeException('Could not start process: ' . implode(' ', $command));
+    }
+
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+
+    $stdout = '';
+    $stderr = '';
+    $deadline = microtime(true) + $timeoutSeconds;
+    $timedOut = false;
+    $exit = -1;
+
+    while (true) {
+        $stdout .= stream_get_contents($pipes[1]) ?: '';
+        $stderr .= stream_get_contents($pipes[2]) ?: '';
+        $status = proc_get_status($process);
+        if (!$status['running']) {
+            $exit = (int) $status['exitcode'];
+            break;
+        }
+        if (microtime(true) >= $deadline) {
+            $timedOut = true;
+            proc_terminate($process, 15);
+            $killDeadline = microtime(true) + 2;
+            while (microtime(true) < $killDeadline) {
+                $stdout .= stream_get_contents($pipes[1]) ?: '';
+                $stderr .= stream_get_contents($pipes[2]) ?: '';
+                $status = proc_get_status($process);
+                if (!$status['running']) {
+                    break 2;
+                }
+                usleep(50000);
+            }
+            proc_terminate($process, 9);
+            break;
+        }
+        usleep(50000);
+    }
+
+    $stdout .= stream_get_contents($pipes[1]) ?: '';
+    $stderr .= stream_get_contents($pipes[2]) ?: '';
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $closed = proc_close($process);
+    if ($exit < 0) {
+        $exit = $closed;
+    }
+    if ($timedOut) {
+        $stderr .= "\ncommand timed out after {$timeoutSeconds}s\n";
+        $exit = 124;
+    }
+
+    return [
+        'exit' => $exit,
+        'stdout' => $stdout,
+        'stderr' => $stderr,
+    ];
+}
+
+/**
+ * @param array{dir: string, exit: int, stdout: string, stderr: string} $case
+ */
+function commandFailedUnrelatedToManifestRefusal(array $case): bool
+{
+    if (in_array($case['exit'], [124, 126, 127], true) || $case['exit'] > 128) {
+        return true;
+    }
+
+    $output = $case['stdout'] . "\n" . $case['stderr'];
+    $needles = [
+        'command not found',
+        'option does not exist',
+        'Could not open input file',
+        'timed out',
+        'timeout:',
+        'PHP Fatal',
+        'PHP Parse error',
+        'could not be resolved',
+        'Installation failed',
+        'Invalid argument',
+    ];
+    foreach ($needles as $needle) {
+        if (stripos($output, $needle) !== false) {
+            return true;
+        }
+    }
+
+    return preg_match('/^In [A-Za-z0-9_.]+\.php line \d+/m', $output) === 1;
+}
+
+function runHarnessSelfTest(): int
+{
+    $failures = [];
+
+    $markdown = "Run both:\n```bash\ncomposer show acme/devdep --all\ncomposer update\n```\n";
+    $snippets = extractComposerSnippets($markdown);
+    if (count($snippets) !== 1 || composerSnippetKind($snippets[0]) !== 'show+update') {
+        $failures[] = 'a fence with composer show and composer update must be one show+update snippet';
+    } else {
+        $kinds = coveredOperations($snippets);
+        if (!in_array('show', $kinds, true) || !in_array('update', $kinds, true)) {
+            $failures[] = 'show+update must count as both show and update';
+        }
+    }
+
+    $showOnly = coveredOperations(["composer show acme/devdep --all"]);
+    if ($showOnly !== ['show']) {
+        $failures[] = 'a show snippet must count only as show';
+    }
+
+    $dir = sys_get_temp_dir() . '/review-composer-self-' . bin2hex(random_bytes(4));
+    mkdir($dir);
+    $showSnippet = 'composer show acme/devdep --all';
+    $unsuccessful = assertSnippet($showSnippet, 'no-composer-env', [
+        'dir' => $dir,
+        'exit' => 2,
+        'stdout' => '',
+        'stderr' => '',
+    ]);
+    if (!array_filter($unsuccessful, static fn (string $failure): bool => str_contains($failure, 'must succeed when COMPOSER is unset'))) {
+        $failures[] = 'a non-zero exit with COMPOSER unset must fail';
+    }
+
+    $refusal = assertSnippet($showSnippet, 'settings-env', [
+        'dir' => $dir,
+        'exit' => 1,
+        'stdout' => 'refusing to run: COMPOSER points at another manifest',
+        'stderr' => '',
+    ]);
+    if ($refusal !== []) {
+        $failures[] = 'a deliberate hidden-manifest refusal must not fail: ' . implode('; ', $refusal);
+    }
+
+    $missing = assertSnippet($showSnippet, 'settings-env', [
+        'dir' => $dir,
+        'exit' => 127,
+        'stdout' => '',
+        'stderr' => 'composer: command not found',
+    ]);
+    if (!array_filter($missing, static fn (string $failure): bool => str_contains($failure, 'reason other than refusing'))) {
+        $failures[] = 'command not found must not count as a manifest refusal';
+    }
+
+    $invalid = assertSnippet($showSnippet, 'settings-env', [
+        'dir' => $dir,
+        'exit' => 1,
+        'stdout' => '',
+        'stderr' => "The \"--nope\" option does not exist.\n",
+    ]);
+    if (!array_filter($invalid, static fn (string $failure): bool => str_contains($failure, 'reason other than refusing'))) {
+        $failures[] = 'an invalid Composer option must not count as a manifest refusal';
+    }
+    removeTree($dir);
+
+    $sleep = runProcess(['sleep', '5'], sys_get_temp_dir(), ['PATH' => getenv('PATH') ?: '/usr/bin:/bin'], 1);
+    if ($sleep['exit'] !== 124 || !str_contains($sleep['stderr'], 'timed out')) {
+        $failures[] = 'a process must be stopped after the timeout without GNU timeout (exit ' . $sleep['exit'] . ')';
+    }
+
+    $quick = runProcess(['php', '-r', 'fwrite(STDOUT, "ok"); exit(0);'], sys_get_temp_dir(), ['PATH' => getenv('PATH') ?: '/usr/bin:/bin'], 10);
+    if ($quick['exit'] !== 0 || !str_contains($quick['stdout'], 'ok')) {
+        $failures[] = 'a finished process must keep its exit code and output';
+    }
+
+    composerOnPath();
+    $seeded = runSnippet('composer show acme/devdep --all --no-scripts', false);
+    $activated = is_file($seeded['dir'] . '/.scanned-plugin-activated');
+    $leftLock = is_file($seeded['dir'] . '/composer.lock');
+    removeTree($seeded['dir']);
+    if (!$activated) {
+        $failures[] = 'composer show without --no-plugins must activate the seeded scanned plugin';
+    }
+    if ($leftLock) {
+        $failures[] = 'seeding the plugin must not leave composer.lock for a later update to inherit';
+    }
+
+    if ($failures !== []) {
+        fwrite(STDERR, count($failures) . " harness failure(s):\n");
+        foreach ($failures as $failure) {
+            fwrite(STDERR, "- {$failure}\n");
+        }
+
+        return 1;
+    }
+
+    fwrite(STDOUT, "Harness self-test passed.\n");
+
+    return 0;
 }
 
 function singleLine(string $snippet): string
