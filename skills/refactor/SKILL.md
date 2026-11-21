@@ -100,7 +100,7 @@ Run a Shift Workbench task against this repository. The task slug is: $ARGUMENTS
 
    If they want to commit, ask for a commit message, stage all changes (`git add -A`), and commit. Then push only the current branch with the review skill's merge-step push, in one shell call. It runs the `env` from the fixed PATH with `-i`, passes only the ssh command and protocol allow-list, clears credential helpers, askpass, fetch/push/checkout aliases, and `core.fsmonitor`, reads the branch's full ref from `git symbolic-ref --quiet HEAD`, and pushes only `"HEAD:$ref"` with `-c remote.origin.mirror=false`, `-c push.followTags=false`, `--no-follow-tags`, and `--recurse-submodules=no`. Never push without an explicit remote and refspec:
    ```bash
-   shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+   shift_path=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/mingw64/bin
    shift_env=$(PATH="$shift_path" command -v env) || { echo 'env not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_ssh=$(PATH="$shift_path" command -v ssh) || { echo 'ssh not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
    shift_git=$(PATH="$shift_path" command -v git) || { echo 'git not found on the fixed PATH; not contacting the remote.' >&2; exit 127; }
