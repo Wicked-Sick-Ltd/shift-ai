@@ -232,7 +232,12 @@ class ShiftTokenProxyTests(unittest.TestCase):
         self.assertTrue(all(name == "SKILL.md" for name in names))
         for _, command in self.commands:
             self.assertIn("printf 'api_token=%s' \"$SHIFT_API_TOKEN\"", command)
-            self.assertIn("curl -q ", command)
+            self.assertIn('"$shift_curl" -q ', command)
+            self.assertIn(
+                "for c in /usr/bin/curl /bin/curl /usr/local/bin/curl /mingw64/bin/curl /mingw64/bin/curl.exe",
+                command,
+            )
+            self.assertIn("rm -f /tmp/shift_response.json", command)
             self.assertIn("https://laravelshift.com/api/", command)
 
     def test_curl_does_not_disclose_token_to_attacker_proxy(self) -> None:
