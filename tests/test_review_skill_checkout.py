@@ -273,15 +273,27 @@ class Repository:
 
 
 def expand_merge_message(shell: SkillShell, template: str, platform: str, branch: str) -> str:
-    """Expand agent placeholders, then shell variables and command substitutions."""
+    """Expand agent placeholders, then shell variables and command substitutions.
+
+    Braces already written as ``${NAME}`` stay as that variable. Other
+    ``{NAME}`` placeholders become shell variables. The message is expanded
+    once by an unquoted here-document, with backticks escaped so a Markdown
+    code span is not executed as a command.
+    """
     rendered = template.replace("{platform}", platform)
     rendered = substitute_branch(rendered, branch)
-    rendered = re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", r"${\1}", rendered)
+    rendered = re.sub(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}", r"${\1}", rendered)
     rendered = " ".join(rendered.splitlines())
-    escaped = rendered.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`")
+    body = rendered.replace("\\", "\\\\").replace("`", "\\`")
+    delimiter = "REVIEW_MERGE_EOF"
+    while delimiter in body:
+        delimiter += "_X"
     output_path = Path(shell._root) / f"merge-{platform}.out"
     script = (
-        'eval "message=\\"' + escaped + '\\""\n'
+        f"message=$(cat <<{delimiter}\n"
+        f"{body}\n"
+        f"{delimiter}\n"
+        ")\n"
         "printf '%s\\n' \"$message\" > " + shlex.quote(str(output_path)) + "\n"
     )
     result = shell.run(script)
@@ -435,6 +447,37 @@ class ReviewSkillCheckoutTest(unittest.TestCase):
 
     def test_first_review_merge_instruction_names_fetched_commit(self) -> None:
         self._check("shift", 18, local_branch=False)
+
+    def test_merge_message_keeps_braced_variables_and_markdown_backticks(self) -> None:
+        root = tempfile.TemporaryDirectory(prefix="review-merge-msg-")
+        shell = SkillShell(Path(root.name), "1")
+        try:
+            sha = "0123456789abcdef0123456789abcdef01234567"
+            shell.env["REVIEWED_COMMIT"] = sha
+            braced = expand_merge_message(
+                shell,
+                "Merge ${REVIEWED_COMMIT} on {platform}.",
+                "GitLab",
+                "shift-19",
+            )
+            self.assertEqual(braced, f"Merge {sha} on GitLab.")
+            quoted = expand_merge_message(
+                shell,
+                "Merge `{REVIEWED_COMMIT}` on {platform}.",
+                "Bitbucket",
+                "shift-19",
+            )
+            self.assertEqual(quoted, f"Merge `{sha}` on Bitbucket.")
+            command = expand_merge_message(
+                shell,
+                "Merge $(printf '%s' ok) {REVIEWED_COMMIT} on {platform}.",
+                "GitLab",
+                "shift-19",
+            )
+            self.assertEqual(command, f"Merge ok {sha} on GitLab.")
+        finally:
+            shell.close()
+            root.cleanup()
 
     def _check(self, prefix: str, number: int, local_branch: bool) -> None:
         repo = Repository(f"{prefix}-{number}")
